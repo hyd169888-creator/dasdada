@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.1",
   "changelog": "1. 初始版本发布\n2. 集成通义千问 (Qwen)、DeepSeek 等多模型\n3. 支持打字实时翻译与全局热键",
   "files": [
     "AI_Translate.ahk",
