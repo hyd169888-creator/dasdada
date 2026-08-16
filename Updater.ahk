@@ -108,7 +108,7 @@ class AppUpdater {
         this.isShaking := false
     }
 
-    ; 自定义更新弹窗 (模态锁定主窗口 + 居中置顶)
+    ; 自定义更新弹窗 (非全局置顶，正常随主程序层级流动，模态绑定主窗口)
     static ShowUpdateModal(latestVer, currentVer, changelog, files) {
         if (this.gui != 0) {
             this.ShakeModal()
@@ -119,7 +119,8 @@ class AppUpdater {
         if (WinExist("AI 智能打字翻译 - 设置中心"))
             ownerHwnd := WinGetID("AI 智能打字翻译 - 设置中心")
 
-        opt := "+AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
+        ; 移除 +AlwaysOnTop，使用 -AlwaysOnTop，允许被外部其它程序遮挡
+        opt := "-AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
         if (ownerHwnd)
             opt .= " +Owner" . ownerHwnd
 
