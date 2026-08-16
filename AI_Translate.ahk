@@ -14,11 +14,21 @@ class AITranslator {
         "pl", "Polish"
     )
 
+    ; 兼容 Float_Bar 调用的 Request 接口
+    static Request(text, providerCfg := 0, targetLang := "en", sourceLang := "auto") {
+        if (providerCfg is String && (targetLang is Map || targetLang is Object)) {
+            temp := providerCfg
+            providerCfg := targetLang
+            targetLang := temp
+        }
+        return this.Translate(text, targetLang, sourceLang, providerCfg)
+    }
+
     static Translate(text, targetLang := "en", sourceLang := "auto", providerCfg := 0, isSecondRound := false) {
         if (Trim(text) == "")
             return ""
 
-        if (!providerCfg) {
+        if (!providerCfg || !IsObject(providerCfg)) {
             settingsFile := A_ScriptDir . "\config\setting.json"
             if FileExist(settingsFile) {
                 try {
