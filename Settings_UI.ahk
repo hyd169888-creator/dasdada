@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent(true)
 
@@ -35,6 +35,7 @@ WM_KEYDOWN_ACCELERATOR(wParam, lParam, msg, hwnd) {
 
 WM_CLOSE_INTERCEPT(wParam, lParam, msg, hwnd) {
     if (SettingsUI.gui && hwnd == SettingsUI.gui.Hwnd) {
+        ; 如果当前存在更新弹窗，禁止关闭并触发弹窗抖动
         if (IsSet(AppUpdater) && AppUpdater.gui) {
             AppUpdater.ShakeModal()
             return 0
@@ -208,7 +209,7 @@ class SettingsUI {
         }
         htmlCode := StrReplace(htmlCode, "{{LOGO_ELEMENT}}", imgTag)
         
-        verText := "v2.0.3"
+        verText := "v2.0.2"
         try {
             if IsSet(AppUpdater)
                 verText := "v" . AppUpdater.GetCurrentVersion()
@@ -858,6 +859,7 @@ class SettingsUI {
             </style>
         </head>
         <body>
+            <!-- 风格化删除确认模态框 -->
             <div id="customConfirmModal" class="confirm-modal-overlay">
                 <div class="confirm-modal-box">
                     <div class="confirm-icon">🗑️</div>
@@ -910,8 +912,17 @@ class SettingsUI {
                                     </div>
                                     <div class="select-dropdown">
                                         <div class="capsule-track"><div class="capsule-thumb" id="thumb-sourceLang"></div></div>
-                                        <div class="select-scroll-viewport" id="sourceLangViewport" onscroll="updateScroll('select-sourceLang', 'thumb-sourceLang')">
-                                            <!-- 由 JS 动态渲染 -->
+                                        <div class="select-scroll-viewport" onscroll="updateScroll('select-sourceLang', 'thumb-sourceLang')">
+                                            <div class="select-option selected" data-value="auto" onclick="selectOption('select-sourceLang', 'auto', '自动识别 (中英双向智能互译)')">自动识别 (中英双向智能互译)</div>
+                                            <div class="select-option" data-value="zh" onclick="selectOption('select-sourceLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
+                                            <div class="select-option" data-value="en" onclick="selectOption('select-sourceLang', 'en', 'English (英语)')">English (英语)</div>
+                                            <div class="select-option" data-value="ja" onclick="selectOption('select-sourceLang', 'ja', '日本語 (Japanese)')">日本語 (Japanese)</div>
+                                            <div class="select-option" data-value="ko" onclick="selectOption('select-sourceLang', 'ko', '한국语 (Korean)')">한국어 (Korean)</div>
+                                            <div class="select-option" data-value="es" onclick="selectOption('select-sourceLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
+                                            <div class="select-option" data-value="fr" onclick="selectOption('select-sourceLang', 'fr', 'Français (法语)')">Français (法语)</div>
+                                            <div class="select-option" data-value="de" onclick="selectOption('select-sourceLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
+                                            <div class="select-option" data-value="ru" onclick="selectOption('select-sourceLang', 'ru', 'Русский (俄语)')">Русский (俄语)</div>
+                                            <div class="select-option" data-value="pl" onclick="selectOption('select-sourceLang', 'pl', 'Polski (波兰语)')">Polski (波兰语)</div>
                                         </div>
                                     </div>
                                 </div>
@@ -928,8 +939,16 @@ class SettingsUI {
                                     </div>
                                     <div class="select-dropdown">
                                         <div class="capsule-track"><div class="capsule-thumb" id="thumb-targetLang"></div></div>
-                                        <div class="select-scroll-viewport" id="targetLangViewport" onscroll="updateScroll('select-targetLang', 'thumb-targetLang')">
-                                            <!-- 由 JS 动态渲染 -->
+                                        <div class="select-scroll-viewport" onscroll="updateScroll('select-targetLang', 'thumb-targetLang')">
+                                            <div class="select-option selected" data-value="en" onclick="selectOption('select-targetLang', 'en', 'English (英语)')">English (英语)</div>
+                                            <div class="select-option" data-value="zh" onclick="selectOption('select-targetLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
+                                            <div class="select-option" data-value="ja" onclick="selectOption('select-targetLang', 'ja', '日本語 (日语)')">日本語 (日语)</div>
+                                            <div class="select-option" data-value="ko" onclick="selectOption('select-targetLang', 'ko', '한국어 (韩语)')">한국어 (韩语)</div>
+                                            <div class="select-option" data-value="es" onclick="selectOption('select-targetLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
+                                            <div class="select-option" data-value="fr" onclick="selectOption('select-targetLang', 'fr', 'Français (法语)')">Français (法语)</div>
+                                            <div class="select-option" data-value="de" onclick="selectOption('select-targetLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
+                                            <div class="select-option" data-value="ru" onclick="selectOption('select-targetLang', 'ru', 'Русский (俄语)')">Русский (俄语)</div>
+                                            <div class="select-option" data-value="pl" onclick="selectOption('select-targetLang', 'pl', 'Polski (波兰语)')">Polski (波兰语)</div>
                                         </div>
                                     </div>
                                 </div>
@@ -1087,31 +1106,6 @@ class SettingsUI {
                     "Doubao": "豆包(ByteDance)"
                 };
 
-                var g_sourceLangs = [
-                    { val: "auto", name: "自动识别 (中英双向智能互译)" },
-                    { val: "zh", name: "中文 (Chinese)" },
-                    { val: "en", name: "English (英语)" },
-                    { val: "ja", name: "日本語 (Japanese)" },
-                    { val: "ko", name: "한국어 (Korean)" },
-                    { val: "es", name: "Español (西班牙语)" },
-                    { val: "fr", name: "Français (法语)" },
-                    { val: "de", name: "Deutsch (德语)" },
-                    { val: "ru", name: "Русский (俄语)" },
-                    { val: "pl", name: "Polski (波兰语)" }
-                ];
-
-                var g_targetLangs = [
-                    { val: "en", name: "English (英语)" },
-                    { val: "zh", name: "中文 (Chinese)" },
-                    { val: "ja", name: "日本語 (日语)" },
-                    { val: "ko", name: "한국어 (韩语)" },
-                    { val: "es", name: "Español (西班牙语)" },
-                    { val: "fr", name: "Français (法语)" },
-                    { val: "de", name: "Deutsch (德语)" },
-                    { val: "ru", name: "Русский (俄语)" },
-                    { val: "pl", name: "Polski (波兰语)" }
-                ];
-
                 var g_hotkeys = {
                     show_bar: "!y",
                     settings: "!s",
@@ -1122,27 +1116,6 @@ class SettingsUI {
 
                 var toastTimer = null;
                 var g_pendingDeleteKey = null;
-
-                function renderLanguageOptions() {
-                    var sVp = document.getElementById("sourceLangViewport");
-                    var tVp = document.getElementById("targetLangViewport");
-                    if (sVp) {
-                        var sHtml = "";
-                        for (var i = 0; i < g_sourceLangs.length; i++) {
-                            var item = g_sourceLangs[i];
-                            sHtml += '<div class="select-option" data-value="' + item.val + '" onclick="selectOption(\'select-sourceLang\', \'' + item.val + '\', \'' + item.name + '\')">' + item.name + '</div>';
-                        }
-                        sVp.innerHTML = sHtml;
-                    }
-                    if (tVp) {
-                        var tHtml = "";
-                        for (var j = 0; j < g_targetLangs.length; j++) {
-                            var tItem = g_targetLangs[j];
-                            tHtml += '<div class="select-option" data-value="' + tItem.val + '" onclick="selectOption(\'select-targetLang\', \'' + tItem.val + '\', \'' + tItem.name + '\')">' + tItem.name + '</div>';
-                        }
-                        tVp.innerHTML = tHtml;
-                    }
-                }
 
                 function renderProviderOptions() {
                     var vp = document.getElementById("providerViewport");
@@ -1405,7 +1378,6 @@ class SettingsUI {
                         }
                     } catch(e) {}
 
-                    renderLanguageOptions();
                     g_currentProvider = currProvider;
                     renderProviderOptions();
                     setCustomSelectValue("select-provider", currProvider);
