@@ -60,13 +60,13 @@ class SettingsUI {
             return
         }
 
-        g := Gui("+Resize +MinSize520x680", "AI 智能打字翻译 - 设置中心")
+        g := Gui("-MaximizeBox -MinimizeBox", "AI 智能打字翻译 - 设置中心")
         g.BackColor := "0xF8FAF5"
         g.MarginX := 0
         g.MarginY := 0
         this.gui := g
 
-        wbCtl := g.Add("ActiveX", "w550 h720", "Shell.Explorer")
+        wbCtl := g.Add("ActiveX", "w460 h735", "Shell.Explorer")
         this.wv := wbCtl.Value
         this.wv.silent := true
         this.wv.Navigate("about:blank")
@@ -90,7 +90,7 @@ class SettingsUI {
         doc.parentWindow.ahkBridge := bridge
 
         g.OnEvent("Close", (*) => g.Hide())
-        g.Show("w550 h720 Center")
+        g.Show("w460 h735 Center")
     }
 
     static _OnSaveSettings(sourceLang, targetLang, provider, baseUrl, model, apiKey) {
@@ -153,6 +153,9 @@ class SettingsUI {
         optTLangJa := (tLang == "ja") ? "selected" : ""
         optTLangKo := (tLang == "ko") ? "selected" : ""
 
+        optProvNvidia := (prov == "nvidia") ? "selected" : ""
+        optProvCustom := (prov == "custom") ? "selected" : ""
+
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -161,45 +164,245 @@ class SettingsUI {
         <meta http-equiv='X-UA-Compatible' content='IE=edge'>
         <meta charset='utf-8'>
         <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, 'Microsoft YaHei UI', sans-serif; }
-            body { background: #F8FAF5; padding: 24px; color: #18181B; }
-            .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
-            .logo-title { font-size: 20px; font-weight: 900; color: #0F172A; }
-            .badge-bar { display: flex; gap: 8px; }
-            .badge-btn { background: #18181B; color: #FFF; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
-            .sub-title { font-size: 18px; font-weight: 800; color: #1E293B; margin-bottom: 4px; }
-            .sub-desc { font-size: 12px; color: #64748B; margin-bottom: 20px; }
-            .card { background: #FFF; border: 1.5px solid #E2E8F0; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
-            .card-title { font-size: 11px; font-weight: 800; color: #475569; letter-spacing: 0.5px; margin-bottom: 12px; }
-            .field-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-            .field-row:last-child { margin-bottom: 0; }
-            .field-label { font-size: 13px; font-weight: 700; color: #334155; }
-            select, input { width: 340px; height: 36px; border: 1.5px solid #E2E8F0; border-radius: 8px; padding: 0 10px; font-size: 13px; color: #0F172A; outline: none; }
-            select:focus, input:focus { border-color: #84CC16; }
-            .status-card { background: #D8FA63; border-radius: 10px; padding: 12px 16px; margin-bottom: 16px; }
-            .status-title { font-size: 11px; font-weight: 800; color: #18181B; }
-            .status-desc { font-size: 12px; font-weight: 700; color: #18181B; margin-top: 4px; }
-            .btn-group { display: flex; gap: 12px; }
-            .btn-test { flex: 1; height: 42px; background: #18181B; color: #FFF; border: none; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; }
-            .btn-save { flex: 1; height: 42px; background: #D8FA63; color: #18181B; border: 1px solid #C4E840; border-radius: 10px; font-size: 13px; font-weight: 800; cursor: pointer; box-shadow: 0 4px 12px rgba(216, 250, 99, 0.35); }
-            .ver-bottom { display: flex; justify-content: center; margin-top: 18px; }
-            .ver-badge { background: #D8FA63; color: #18181B; padding: 3px 12px; border-radius: 6px; font-size: 11px; font-weight: 800; }
+            * {
+                box-sizing: border-box;
+                margin: 0;
+                padding: 0;
+                user-select: none;
+                -webkit-user-select: none;
+                font-family: -apple-system, 'Microsoft YaHei UI', 'Segoe UI', sans-serif;
+            }
+            html, body {
+                background: #F8FAF5;
+                padding: 16px 20px;
+                color: #18181B;
+                overflow: hidden; /* 彻底去除多余的系统滚动条 */
+                height: 100%;
+            }
+            .header {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 12px;
+            }
+            .header-left {
+                display: flex;
+                align-items: center;
+                gap: 10px;
+            }
+            .logo-icon {
+                width: 32px;
+                height: 32px;
+                background: #6EE7B7;
+                border-radius: 8px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+                font-weight: 900;
+                color: #065F46;
+                box-shadow: 0 2px 6px rgba(110, 231, 183, 0.4);
+            }
+            .logo-title {
+                font-size: 17px;
+                font-weight: 900;
+                color: #0F172A;
+                line-height: 1.1;
+            }
+            .logo-subtitle {
+                font-size: 11px;
+                font-weight: 500;
+                color: #64748B;
+            }
+            .badge-bar {
+                display: flex;
+                gap: 8px;
+            }
+            .badge-btn {
+                background: #18181B;
+                color: #FFF;
+                padding: 4px 12px;
+                border-radius: 20px;
+                font-size: 11px;
+                font-weight: 700;
+                cursor: pointer;
+            }
+            .badge-btn.inactive {
+                background: transparent;
+                color: #64748B;
+            }
+            
+            .tagline {
+                font-size: 11px;
+                font-weight: 800;
+                color: #6366F1;
+                letter-spacing: 0.5px;
+                margin-bottom: 3px;
+            }
+            .main-title {
+                font-size: 17px;
+                font-weight: 900;
+                color: #0F172A;
+                margin-bottom: 2px;
+            }
+            .main-desc {
+                font-size: 11px;
+                color: #64748B;
+                margin-bottom: 14px;
+            }
+
+            /* 卡片容器 */
+            .card {
+                background: #FFFFFF;
+                border: 1.5px solid #E2E8F0;
+                border-radius: 12px;
+                padding: 14px 16px;
+                margin-bottom: 12px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            }
+            .card-label {
+                font-size: 11px;
+                font-weight: 800;
+                color: #64748B;
+                letter-spacing: 0.5px;
+                margin-bottom: 10px;
+            }
+            .field-row {
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                margin-bottom: 10px;
+            }
+            .field-row:last-child {
+                margin-bottom: 0;
+            }
+            .field-label {
+                font-size: 12px;
+                font-weight: 800;
+                color: #334155;
+            }
+
+            /* 1:1 对标原版效果的青绿加粗圆角控件 */
+            select, input {
+                width: 290px;
+                height: 34px;
+                border: 2px solid #84CC16;
+                border-radius: 8px;
+                padding: 0 10px;
+                font-size: 12px;
+                font-weight: 700;
+                color: #18181B;
+                background-color: #FFFFFF;
+                outline: none;
+            }
+            /* 现代平滑下拉箭头 */
+            select {
+                appearance: none;
+                -webkit-appearance: none;
+                background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%2384CC16\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 9 12 15 18 9\"></polyline></svg>');
+                background-repeat: no-repeat;
+                background-position: right 10px center;
+                padding-right: 28px;
+                cursor: pointer;
+            }
+            input:focus, select:focus {
+                border-color: #65A30D;
+                box-shadow: 0 0 0 2px rgba(132, 204, 22, 0.15);
+            }
+
+            /* 状态卡片 */
+            .status-card {
+                background: #D8FA63;
+                border-radius: 10px;
+                padding: 10px 14px;
+                margin-bottom: 12px;
+            }
+            .status-title {
+                font-size: 11px;
+                font-weight: 800;
+                color: #18181B;
+            }
+            .status-desc {
+                font-size: 11px;
+                font-weight: 700;
+                color: #18181B;
+                margin-top: 2px;
+            }
+
+            /* 按钮组 */
+            .btn-group {
+                display: flex;
+                gap: 10px;
+            }
+            .btn-test {
+                flex: 1;
+                height: 38px;
+                background: #18181B;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 10px;
+                font-size: 12px;
+                font-weight: 800;
+                cursor: pointer;
+                outline: none;
+            }
+            .btn-test:hover {
+                background: #27272A;
+            }
+            .btn-save {
+                flex: 1;
+                height: 38px;
+                background: #D8FA63;
+                color: #18181B;
+                border: 1px solid #C4E840;
+                border-radius: 10px;
+                font-size: 12px;
+                font-weight: 800;
+                cursor: pointer;
+                box-shadow: 0 3px 10px rgba(216, 250, 99, 0.35);
+                outline: none;
+            }
+            .btn-save:hover {
+                background: #CBF048;
+            }
+
+            /* 底部版本徽章 */
+            .ver-bottom {
+                display: flex;
+                justify-content: center;
+                margin-top: 14px;
+            }
+            .ver-badge {
+                background: #D8FA63;
+                color: #18181B;
+                padding: 3px 14px;
+                border-radius: 6px;
+                font-size: 11px;
+                font-weight: 800;
+            }
         </style>
         </head>
         <body>
             <div class='header'>
-                <div class='logo-title'>🔤 AI TRANSLATOR <span style='font-size:12px;font-weight:normal;color:#64748B;'>with Live Brain</span></div>
+                <div class='header-left'>
+                    <div class='logo-icon'>A文</div>
+                    <div>
+                        <div class='logo-title'>AI TRANSLATOR</div>
+                        <div class='logo-subtitle'>with Live Brain</div>
+                    </div>
+                </div>
                 <div class='badge-bar'>
                     <div class='badge-btn'>实时引擎</div>
-                    <div class='badge-btn' style='background:#F1F5F9;color:#475569;'>快捷键</div>
+                    <div class='badge-btn inactive'>快捷键</div>
                 </div>
             </div>
 
-            <div class='sub-title'>打字翻译，在每一次思考后生成</div>
-            <div class='sub-desc'>连接大模型大脑，自动识别中外文并地道转化输出。</div>
+            <div class='tagline'>LIVE INTELLIGENT TRANSLATION</div>
+            <div class='main-title'>打字翻译，在每一次思考后生成</div>
+            <div class='main-desc'>连接大模型大脑，自动识别中外文并地道转化输出。</div>
 
             <div class='card'>
-                <div class='card-title'>LANGUAGE PREFERENCE · 语言设定</div>
+                <div class='card-label'>LANGUAGE PREFERENCE · 语言设定</div>
                 <div class='field-row'>
                     <span class='field-label'>源语言</span>
                     <select id='sourceLang'>
@@ -221,12 +424,12 @@ class SettingsUI {
             </div>
 
             <div class='card'>
-                <div class='card-title'>AI ENGINE & ENDPOINT · 大模型配置</div>
+                <div class='card-label'>AI ENGINE & ENDPOINT · 大模型配置</div>
                 <div class='field-row'>
                     <span class='field-label'>AI 平台</span>
                     <select id='provider'>
-                        <option value='nvidia' selected>NVIDIA·免费满血模型 (需魔法)</option>
-                        <option value='custom'>自定义 OpenAI 兼容端点</option>
+                        <option value='nvidia' {{OPT_PROV_NVIDIA}}>NVIDIA·免费满血模型 (需魔法)</option>
+                        <option value='custom' {{OPT_PROV_CUSTOM}}>自定义API(OpenAI 协议兼容)</option>
                     </select>
                 </div>
                 <div class='field-row'>
@@ -291,6 +494,8 @@ class SettingsUI {
         html := StrReplace(html, "{{OPT_T_PL}}", optTLangPl)
         html := StrReplace(html, "{{OPT_T_JA}}", optTLangJa)
         html := StrReplace(html, "{{OPT_T_KO}}", optTLangKo)
+        html := StrReplace(html, "{{OPT_PROV_NVIDIA}}", optProvNvidia)
+        html := StrReplace(html, "{{OPT_PROV_CUSTOM}}", optProvCustom)
         return html
     }
 
