@@ -14,14 +14,21 @@ class AITranslator {
         "pl", "Polish"
     )
 
-    ; 兼容 Float_Bar 调用的 Request 接口
+    ; 供 Float_Bar 调用的统一接口，返回包含 success 与 result 的对象
     static Request(text, providerCfg := 0, targetLang := "en", sourceLang := "auto") {
         if (providerCfg is String && (targetLang is Map || targetLang is Object)) {
             temp := providerCfg
             providerCfg := targetLang
             targetLang := temp
         }
-        return this.Translate(text, targetLang, sourceLang, providerCfg)
+
+        resText := this.Translate(text, targetLang, sourceLang, providerCfg)
+
+        if InStr(resText, "【错误") || InStr(resText, "【网络连接失败】") || InStr(resText, "【接口返回异常") {
+            return { success: false, result: "", msg: resText }
+        }
+
+        return { success: true, result: resText, msg: "" }
     }
 
     static Translate(text, targetLang := "en", sourceLang := "auto", providerCfg := 0, isSecondRound := false) {
