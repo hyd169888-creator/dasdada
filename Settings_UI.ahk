@@ -10,9 +10,9 @@ class SettingsUI {
     static defaultConfig := Map(
         "source_lang", "auto",
         "target_lang", "en",
-        "provider", "nvidia",
-        "base_url", "https://integrate.api.nvidia.com/v1",
-        "model", "meta/llama-3.1-8b-instruct",
+        "provider", "custom",
+        "base_url", "https://tokenrhythm.studio/v1",
+        "model", "deepseek-v4-flash",
         "api_key", "",
         "hotkeys", Map(
             "show_bar", "!y",
@@ -74,7 +74,7 @@ class SettingsUI {
             Sleep(10)
 
         cfg := this.LoadConfig()
-        localVer := FileExist(A_ScriptDir . "\version.txt") ? Trim(FileRead(A_ScriptDir . "\version.txt", "UTF-8")) : "2.0.6"
+        localVer := FileExist(A_ScriptDir . "\version.txt") ? Trim(FileRead(A_ScriptDir . "\version.txt", "UTF-8")) : "1.0.1"
 
         html := this._BuildHtml(cfg, localVer)
         doc := this.wv.Document
@@ -176,7 +176,7 @@ class SettingsUI {
                 background: #F8FAF5;
                 padding: 16px 20px;
                 color: #18181B;
-                overflow: hidden; /* 彻底去除多余的系统滚动条 */
+                overflow: hidden;
                 height: 100%;
             }
             .header {
@@ -188,48 +188,78 @@ class SettingsUI {
             .header-left {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 8px;
             }
-            .logo-icon {
-                width: 32px;
+            /* 图标徽章 */
+            .logo-wrap {
+                width: 36px;
                 height: 32px;
-                background: #6EE7B7;
+                background: #A7F3D0;
                 border-radius: 8px;
                 display: flex;
+                flex-direction: column;
                 align-items: center;
                 justify-content: center;
-                font-size: 14px;
+                box-shadow: 0 1px 4px rgba(167, 243, 208, 0.6);
+            }
+            .logo-badges {
+                display: flex;
+                gap: 2px;
+            }
+            .bubble-icon {
+                background: #FFFFFF;
+                color: #059669;
+                font-size: 8px;
                 font-weight: 900;
-                color: #065F46;
-                box-shadow: 0 2px 6px rgba(110, 231, 183, 0.4);
+                padding: 1px 2px;
+                border-radius: 3px;
+                line-height: 1;
+            }
+            .keyboard-dots {
+                display: flex;
+                gap: 1px;
+                margin-top: 2px;
+            }
+            .kbd-dot {
+                width: 3px;
+                height: 2px;
+                background: #059669;
+                border-radius: 1px;
+            }
+
+            .logo-text-box {
+                display: flex;
+                flex-direction: column;
             }
             .logo-title {
-                font-size: 17px;
+                font-size: 15px;
                 font-weight: 900;
                 color: #0F172A;
                 line-height: 1.1;
+                letter-spacing: 0.3px;
             }
             .logo-subtitle {
-                font-size: 11px;
+                font-size: 10px;
                 font-weight: 500;
                 color: #64748B;
             }
             .badge-bar {
                 display: flex;
-                gap: 8px;
+                align-items: center;
+                gap: 10px;
             }
             .badge-btn {
                 background: #18181B;
-                color: #FFF;
-                padding: 4px 12px;
+                color: #FFFFFF;
+                padding: 4px 14px;
                 border-radius: 20px;
                 font-size: 11px;
-                font-weight: 700;
-                cursor: pointer;
+                font-weight: 800;
             }
-            .badge-btn.inactive {
-                background: transparent;
+            .badge-text-link {
                 color: #64748B;
+                font-size: 11px;
+                font-weight: 700;
             }
             
             .tagline {
@@ -237,7 +267,7 @@ class SettingsUI {
                 font-weight: 800;
                 color: #6366F1;
                 letter-spacing: 0.5px;
-                margin-bottom: 3px;
+                margin-bottom: 2px;
             }
             .main-title {
                 font-size: 17px;
@@ -282,9 +312,14 @@ class SettingsUI {
                 color: #334155;
             }
 
-            /* 1:1 对标原版效果的青绿加粗圆角控件 */
+            /* 彻底消除 IE 默认灰块箭头的 CSS 规则 */
+            select::-ms-expand {
+                display: none;
+            }
+
+            /* 1:1 还原图 2 的绿边圆润输入框与下拉框 */
             select, input {
-                width: 290px;
+                width: 285px;
                 height: 34px;
                 border: 2px solid #84CC16;
                 border-radius: 8px;
@@ -295,10 +330,10 @@ class SettingsUI {
                 background-color: #FFFFFF;
                 outline: none;
             }
-            /* 现代平滑下拉箭头 */
             select {
                 appearance: none;
                 -webkit-appearance: none;
+                -moz-appearance: none;
                 background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%2384CC16\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 9 12 15 18 9\"></polyline></svg>');
                 background-repeat: no-repeat;
                 background-position: right 10px center;
@@ -307,7 +342,6 @@ class SettingsUI {
             }
             input:focus, select:focus {
                 border-color: #65A30D;
-                box-shadow: 0 0 0 2px rgba(132, 204, 22, 0.15);
             }
 
             /* 状态卡片 */
@@ -385,15 +419,26 @@ class SettingsUI {
         <body>
             <div class='header'>
                 <div class='header-left'>
-                    <div class='logo-icon'>A文</div>
-                    <div>
+                    <div class='logo-wrap'>
+                        <div class='logo-badges'>
+                            <span class='bubble-icon'>A</span>
+                            <span class='bubble-icon'>文</span>
+                        </div>
+                        <div class='keyboard-dots'>
+                            <div class='kbd-dot'></div>
+                            <div class='kbd-dot'></div>
+                            <div class='kbd-dot'></div>
+                            <div class='kbd-dot'></div>
+                        </div>
+                    </div>
+                    <div class='logo-text-box'>
                         <div class='logo-title'>AI TRANSLATOR</div>
                         <div class='logo-subtitle'>with Live Brain</div>
                     </div>
                 </div>
                 <div class='badge-bar'>
                     <div class='badge-btn'>实时引擎</div>
-                    <div class='badge-btn inactive'>快捷键</div>
+                    <div class='badge-text-link'>快捷键</div>
                 </div>
             </div>
 
