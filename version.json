@@ -1,11 +1,8 @@
 {
-  "version": "2.0.2",
-  "changelog": "1. 💡 支持多自定义 API 管理：可同时保存/轮换多个第三方兼容大模型。\n2. 🏷️ 新增平台昵称自定义：清晰区分不同中转站与本地模型。\n3. 🗑️ 下拉列表一键删除：自定义项支持快捷移除与清理。\n4. 🚀 连通性测速探针全面升级：带载入动效与高精度真实延迟。",
+  "version": "2.0.3",
+  "changelog": "1. 🇵🇱 新增「波兰语 (Polski)」双向智能翻译支持。\n2. 🎨 优化自定义 API 删除确认弹窗视觉层级与按键微交互。\n3. ⚡ 修复窗口模态置顶与层级遮挡逻辑。",
   "files": [
     "AI_Translate.ahk",
-    "Float_Bar.ahk",
-    "Main.ahk",
-    "Settings_UI.ahk",
-    "Updater.ahk"
+    "Settings_UI.ahk"
   ]
 }
