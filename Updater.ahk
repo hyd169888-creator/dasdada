@@ -26,7 +26,7 @@ class AppUpdater {
         return "1.0.0"
     }
 
-    ; 版本号比对算法 (v1 > v2 返回 1, v1 < v2 返回 -1, 相等返回 0)
+    ; 版本号比对算法
     static CompareVersions(v1, v2) {
         v1 := RegExReplace(v1, "^[vV]", "")
         v2 := RegExReplace(v2, "^[vV]", "")
@@ -64,24 +64,19 @@ class AppUpdater {
         return ""
     }
 
-    ; 二进制流下载文件 (彻底杜绝编码二次转码损坏问题)
-    static DownloadBinaryFile(url, destPath) {
+    ; 使用系统原生 API 下载纯净文件 (杜绝转码损坏)
+    static DownloadFileNative(url, destPath) {
         reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
         try {
-            http := ComObject("WinHttp.WinHttpRequest.5.1")
-            http.SetTimeouts(5000, 5000, 15000, 15000)
-            http.Open("GET", reqUrl, false)
-            http.SetRequestHeader("Pragma", "no-cache")
-            http.SetRequestHeader("Cache-Control", "no-cache, no-store, must-revalidate")
-            http.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            http.Send()
-            if (http.Status == 200) {
-                stream := ComObject("ADODB.Stream")
-                stream.Type := 1 ; 二进制模式 adTypeBinary
-                stream.Open()
-                stream.Write(http.ResponseBody)
-                stream.SaveToFile(destPath, 2) ; 覆盖写入 adSaveCreateOverWrite
-                stream.Close()
+            ; 调用 Windows urlmon.dll 下载原生文件
+            res := DllCall("urlmon\URLDownloadToFileW", "Ptr", 0, "Str", reqUrl, "Str", destPath, "UInt", 0, "Ptr", 0, "Int")
+            if (res == 0 && FileExist(destPath) && FileGetSize(destPath) > 50) {
+                ; 校验下载内容是否有效（防止下到 404 HTML 报错页）
+                firstLine := Trim(FileReadLine(destPath, 1))
+                if (InStr(firstLine, "<!DOCTYPE") || InStr(firstLine, "<html")) {
+                    FileDelete(destPath)
+                    return false
+                }
                 return true
             }
         } catch {
@@ -111,9 +106,9 @@ class AppUpdater {
     static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
             cmd := wParam & 0xFFF0
-            if (cmd == 0xF010) ; 拦截移动
+            if (cmd == 0xF010)
                 return 0
-            if (cmd == 0xF060) { ; 拦截关闭
+            if (cmd == 0xF060) {
                 AppUpdater.ShakeModal()
                 return 0
             }
@@ -129,7 +124,7 @@ class AppUpdater {
         }
     }
 
-    ; 优先级握手：等待主界面完全渲染就绪后立即触发检查
+    ; 优先级握手
     static StartAutoCheck() {
         SetTimer(() => this._WaitForMainAndCheck(), -60)
     }
@@ -193,7 +188,6 @@ class AppUpdater {
         }
     }
 
-    ; HTML 字符安全转义
     static HtmlEscape(str) {
         str := StrReplace(str, "&", "&amp;")
         str := StrReplace(str, "<", "&lt;")
@@ -202,12 +196,10 @@ class AppUpdater {
         return str
     }
 
-    ; 供 Web 按钮直接调用的触发函数
     static TriggerUpdateFromWeb() {
         SetTimer(() => this.PerformUpdate(this.curRemoteVer, this.curFileList), -10)
     }
 
-    ; 构建现代质感更新弹窗
     static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
         if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
             this.ShakeModal()
@@ -221,14 +213,12 @@ class AppUpdater {
             this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
         }
 
-        ; 注册全局防拖动与拦截器
         if (!this.isHooked) {
             OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
             OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
             this.isHooked := true
         }
 
-        ; 父子属主关系 (+Owner)
         ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
         g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
         g.BackColor := "0xF8FAF5"
@@ -236,12 +226,10 @@ class AppUpdater {
         g.MarginY := 0
         this.gui := g
 
-        ; 禁用主界面点击交互
         if (this.mainHwnd) {
             WinSetEnabled(0, "ahk_id " . this.mainHwnd)
         }
 
-        ; 嵌入 Web 渲染容器
         wbCtl := g.Add("ActiveX", "w390 h430", "Shell.Explorer")
         this.wb := wbCtl.Value
         this.wb.silent := true
@@ -251,7 +239,6 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; HTML 模板（内置横向胶囊动态进度条）
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -389,7 +376,6 @@ class AppUpdater {
                 background-color: #CBF048;
             }
 
-            /* 横向胶囊进度条组件 */
             .progress-container {
                 display: none;
                 width: 100%;
@@ -451,7 +437,6 @@ class AppUpdater {
                 🚀 立即下载并应用更新
             </button>
             
-            <!-- 胶囊进度条 -->
             <div id="progressContainer" class="progress-container">
                 <div class="progress-track">
                     <div id="progressFill" class="progress-fill"></div>
@@ -549,13 +534,11 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
-        ; 注册 JS 桥接对象
         bridge := {
             TriggerUpdate: (*) => AppUpdater.TriggerUpdateFromWeb()
         }
         this.doc.parentWindow.ahkBridge := bridge
 
-        ; 居中显示于主程序上方
         if (this.mainHwnd) {
             WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
             dx := mx + (mw - 390) // 2
@@ -568,7 +551,6 @@ class AppUpdater {
         WinActivate("ahk_id " . g.Hwnd)
     }
 
-    ; 更新前端胶囊进度条与状态
     static UpdateProgressUI(pct, statusText, isError := false) {
         try {
             bBtn := this.doc.getElementById("btnUpdate")
@@ -592,7 +574,7 @@ class AppUpdater {
         }
     }
 
-    ; 执行更新与组件覆写 (二进制安全下载)
+    ; 执行更新与组件覆写 (采用原生下载与原子化替换)
     static PerformUpdate(remoteVer, fileList) {
         if (this.isUpdating)
             return
@@ -608,7 +590,6 @@ class AppUpdater {
         totalFiles := fileList.Length
 
         for idx, fileName in fileList {
-            ; 动态计算真实百分比
             currentPct := Integer(10 + ((idx - 0.5) / totalFiles) * 80)
             this.UpdateProgressUI(currentPct, "正在下载组件 (" . idx . "/" . totalFiles . ")...")
 
@@ -616,28 +597,26 @@ class AppUpdater {
             if FileExist(tempPath)
                 FileDelete(tempPath)
 
-            ; 优先代理，失败直连 (二进制模式)
             fileUrl := this.rawBaseUrl . "/" . fileName
-            ok := this.DownloadBinaryFile(fileUrl, tempPath)
+            ok := this.DownloadFileNative(fileUrl, tempPath)
             
             if (!ok) {
                 fileUrl := this.directRawUrl . "/" . fileName
-                ok := this.DownloadBinaryFile(fileUrl, tempPath)
+                ok := this.DownloadFileNative(fileUrl, tempPath)
             }
 
-            if (ok && FileExist(tempPath) && FileGetSize(tempPath) > 0) {
+            if (ok) {
                 successCount++
             }
 
             finishPct := Integer(10 + (idx / totalFiles) * 80)
             this.UpdateProgressUI(finishPct, "正在同步组件 (" . idx . "/" . totalFiles . ")...")
-            Sleep(60) ; 微量缓冲让平滑动画更加丝滑
+            Sleep(50)
         }
 
         if (successCount >= totalFiles) {
             this.UpdateProgressUI(95, "正在应用组件...")
 
-            ; 替换实际脚本
             for fileName in fileList {
                 src := tempDir . "\" . fileName
                 dst := A_ScriptDir . "\" . fileName
@@ -650,7 +629,6 @@ class AppUpdater {
                 }
             }
 
-            ; 写入新版本号
             try {
                 if FileExist(this.versionFile)
                     FileDelete(this.versionFile)
@@ -662,11 +640,9 @@ class AppUpdater {
             this.UpdateProgressUI(100, "✅ 更新完成，正在重启...")
             Sleep(500)
 
-            ; 恢复主窗口
             if (this.mainHwnd && WinExist("ahk_id " . this.mainHwnd))
                 WinSetEnabled(1, "ahk_id " . this.mainHwnd)
 
-            ; 重启程序
             if A_IsCompiled {
                 Run('"' . A_ScriptFullPath . '"')
             } else {
