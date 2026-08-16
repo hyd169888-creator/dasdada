@@ -11,6 +11,8 @@ class AppUpdater {
     static mainHwnd := 0
     static isUpdating := false
     static isHooked := false
+    static curRemoteVer := ""
+    static curFileList := []
 
     ; 获取本地版本号
     static GetLocalVersion() {
@@ -175,12 +177,20 @@ class AppUpdater {
         return str
     }
 
+    ; 供 Web 按钮直接调用的触发函数
+    static TriggerUpdateFromWeb() {
+        SetTimer(() => this.PerformUpdate(this.curRemoteVer, this.curFileList), -10)
+    }
+
     ; 构建现代质感更新弹窗
     static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
         if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
             this.ShakeModal()
             return
         }
+
+        this.curRemoteVer := remoteVer
+        this.curFileList := fileList
 
         if (!this.mainHwnd || !WinExist("ahk_id " . this.mainHwnd)) {
             this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
@@ -214,16 +224,9 @@ class AppUpdater {
         while (this.wb.ReadyState != 4)
             Sleep(10)
 
-        ; 监听前端点击
-        ComObjConnect(this.wb, {
-            TitleChange: (text, *) => (
-                (text == "DO_UPDATE") ? SetTimer(() => this.PerformUpdate(remoteVer, fileList), -10) : 0
-            )
-        })
-
         safeLog := this.HtmlEscape(changelog)
 
-        ; HTML 模板（内置右侧青绿专属滚动条）
+        ; HTML 模板
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -291,7 +294,6 @@ class AppUpdater {
                 margin-top: 12px;
                 margin-bottom: 6px;
             }
-            /* 外部容器：内置右侧精准定位的青绿滚动条 */
             .log-box-wrapper {
                 position: relative;
                 background: #FFFFFF;
@@ -312,7 +314,6 @@ class AppUpdater {
                 white-space: pre-wrap;
                 word-break: break-all;
             }
-            /* 1:1 还原主程序语言下拉框的青绿滚动条组件 */
             .custom-scrollbar-track {
                 position: absolute;
                 top: 8px;
@@ -342,7 +343,6 @@ class AppUpdater {
                 text-align: center;
                 margin-top: 12px;
             }
-            /* 荧光绿主操作按钮 */
             .btn-update {
                 width: 100%;
                 height: 42px;
@@ -393,7 +393,7 @@ class AppUpdater {
             
             <div class="notice-text">⚠️ 此版本包含重要功能重构，必须完成更新后方可使用</div>
             
-            <button id="btnUpdate" class="btn-update" onclick="document.title = 'DO_UPDATE'">
+            <button id="btnUpdate" class="btn-update" onclick="window.ahkBridge.TriggerUpdate()">
                 🚀 立即下载并应用更新
             </button>
             
@@ -486,6 +486,12 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
+        ; 注册 JS 原生桥接对象 (彻底解决点击无响应)
+        bridge := {
+            TriggerUpdate: (*) => AppUpdater.TriggerUpdateFromWeb()
+        }
+        this.doc.parentWindow.ahkBridge := bridge
+
         ; 居中显示于主程序上方
         if (this.mainHwnd) {
             WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
@@ -525,7 +531,7 @@ class AppUpdater {
             return
         this.isUpdating := true
 
-        this.SetWebStatus("正在下载核心组件 (0/" . fileList.Length . ")...")
+        this.SetWebStatus("正在连接更新通道并下载组件...")
 
         successCount := 0
         tempDir := A_ScriptDir . "\~temp_update"
