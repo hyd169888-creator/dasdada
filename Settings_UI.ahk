@@ -66,7 +66,7 @@ class SettingsUI {
         g.MarginY := 0
         this.gui := g
 
-        wbCtl := g.Add("ActiveX", "w450 h720", "Shell.Explorer")
+        wbCtl := g.Add("ActiveX", "w500 h750", "Shell.Explorer")
         this.wv := wbCtl.Value
         this.wv.silent := true
         this.wv.Navigate("about:blank")
@@ -76,7 +76,22 @@ class SettingsUI {
         cfg := this.LoadConfig()
         localVer := FileExist(A_ScriptDir . "\version.txt") ? Trim(FileRead(A_ScriptDir . "\version.txt", "UTF-8")) : "1.0.1"
 
-        html := this._BuildHtml(cfg, localVer)
+        ; 自动寻找 config 目录下的本地 logo
+        logoPath := ""
+        possibleLogos := [
+            A_ScriptDir . "\config\logo.png",
+            A_ScriptDir . "\config\logo.ico",
+            A_ScriptDir . "\config\icon.png",
+            A_ScriptDir . "\config\logo.jpg"
+        ]
+        for p in possibleLogos {
+            if FileExist(p) {
+                logoPath := "file:///" . StrReplace(p, "\", "/")
+                break
+            }
+        }
+
+        html := this._BuildHtml(cfg, localVer, logoPath)
         doc := this.wv.Document
         doc.open()
         doc.write(html)
@@ -90,7 +105,7 @@ class SettingsUI {
         doc.parentWindow.ahkBridge := bridge
 
         g.OnEvent("Close", (*) => g.Hide())
-        g.Show("w450 h720 Center")
+        g.Show("w500 h750 Center")
     }
 
     static _OnSaveSettings(sourceLang, targetLang, provider, baseUrl, model, apiKey) {
@@ -135,7 +150,7 @@ class SettingsUI {
         }
     }
 
-    static _BuildHtml(cfg, ver) {
+    static _BuildHtml(cfg, ver, logoPath) {
         sLang := cfg.Has("source_lang") ? cfg["source_lang"] : "auto"
         tLang := cfg.Has("target_lang") ? cfg["target_lang"] : "en"
         prov := cfg.Has("provider") ? cfg["provider"] : "custom"
@@ -156,6 +171,8 @@ class SettingsUI {
         optProvNvidia := (prov == "nvidia") ? "selected" : ""
         optProvCustom := (prov == "custom") ? "selected" : ""
 
+        logoSrc := (logoPath != "") ? logoPath : "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIxMiIgZmlsbD0iIzZFRTdCNyIvPjxyZWN0IHg9IjYiIHk9IjgiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNCIgcng9IjQiIGZpbGw9IiNGRkZGRkYiLz48dGV4dCB4PSIxNCIgeT0iMTkiIGZvbnQtc2l6ZT0iMTEiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QTwvdGV4dD48cmVjdCB4PSIyNCIgeT0iOCIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE0IiByeD0iNCIgZmlsbD0iI0ZGRkZGRiIvPjx0ZXh0IHg9IjMzIiB5PSIxOSIgZm9udC1zaXplPSIxMSIgZm9udC1mYW1pbHk9Ik1pY3Jvc29mdCBZYUhlaSwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+5paHPC90ZXh0PjxyZWN0IHg9IjgiIHk9IjI3IiB3aWR0aD0iMzIiIGhlaWdodD0iMTMiIHJ4PSIzIiBmaWxsPSIjMDY1RjQ2IiBmaWxsLW9wYWNpdHk9IjAuMTUiLz48cmVjdCB4PSIxMSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTciIHk9IjI5IiB3aWR0aD0iNCIgaGVpZ2h0PSIzIiByeD0iMSIgZmlsbD0iIzA2NUY0NiIvPjxyZWN0IHg9IjIzIiB5PSIyOSIgd2lkdGg9IjQiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48cmVjdCB4PSIyOSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTMiIHk9IjM0IiB3aWR0aD0iMjIiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48L3N2Zz4="
+
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -174,7 +191,7 @@ class SettingsUI {
             }
             html, body {
                 background: #F8FAF5;
-                padding: 14px 18px;
+                padding: 18px 24px;
                 color: #18181B;
                 overflow: hidden;
                 height: 100%;
@@ -183,71 +200,74 @@ class SettingsUI {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 10px;
+                margin-bottom: 12px;
             }
             .header-left {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 12px;
             }
-            /* 1:1 矢量 Logo 图标 */
             .logo-img {
-                width: 36px;
-                height: 36px;
-                display: block;
+                width: 40px;
+                height: 40px;
+                object-fit: contain;
+                border-radius: 8px;
+                flex-shrink: 0;
             }
             .logo-text-box {
                 display: flex;
                 flex-direction: column;
             }
             .logo-title {
-                font-size: 15px;
+                font-size: 16px;
                 font-weight: 900;
                 color: #0F172A;
-                line-height: 1.1;
-                letter-spacing: 0.3px;
+                line-height: 1.15;
+                letter-spacing: 0.5px;
             }
             .logo-subtitle {
-                font-size: 10px;
+                font-size: 11px;
                 font-weight: 500;
                 color: #64748B;
+                margin-top: 2px;
             }
             .badge-bar {
                 display: flex;
                 align-items: center;
-                gap: 10px;
+                gap: 12px;
             }
             .badge-btn {
                 background: #18181B;
                 color: #FFFFFF;
-                padding: 4px 14px;
+                padding: 5px 16px;
                 border-radius: 20px;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 800;
             }
             .badge-text-link {
                 color: #64748B;
-                font-size: 11px;
+                font-size: 12px;
                 font-weight: 700;
+                cursor: pointer;
             }
             
             .tagline {
-                font-size: 10.5px;
+                font-size: 11px;
                 font-weight: 800;
                 color: #6366F1;
                 letter-spacing: 0.5px;
                 margin-bottom: 2px;
             }
             .main-title {
-                font-size: 16.5px;
+                font-size: 18px;
                 font-weight: 900;
                 color: #0F172A;
                 margin-bottom: 2px;
             }
             .main-desc {
-                font-size: 10.5px;
+                font-size: 11.5px;
                 color: #64748B;
-                margin-bottom: 12px;
+                margin-bottom: 14px;
             }
 
             /* 卡片容器 */
@@ -255,43 +275,44 @@ class SettingsUI {
                 background: #FFFFFF;
                 border: 1.5px solid #E2E8F0;
                 border-radius: 12px;
-                padding: 12px 14px;
-                margin-bottom: 10px;
+                padding: 14px 18px;
+                margin-bottom: 12px;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.02);
             }
             .card-label {
-                font-size: 10.5px;
+                font-size: 11px;
                 font-weight: 800;
                 color: #64748B;
                 letter-spacing: 0.5px;
-                margin-bottom: 8px;
+                margin-bottom: 10px;
             }
             .field-row {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 8px;
+                margin-bottom: 10px;
             }
             .field-row:last-child {
                 margin-bottom: 0;
             }
             .field-label {
-                font-size: 11.5px;
+                font-size: 12.5px;
                 font-weight: 800;
                 color: #334155;
             }
 
-            /* 下拉框独立容器架构，确保翠绿箭头绝对可见 */
+            /* 1:1 对标图 2 的宽度与圆润绿边 */
             .select-wrap {
                 position: relative;
-                width: 270px;
+                width: 320px;
             }
             .select-wrap select {
                 width: 100%;
-                height: 32px;
+                height: 36px;
                 border: 2px solid #84CC16;
                 border-radius: 8px;
-                padding: 0 28px 0 10px;
-                font-size: 11.5px;
+                padding: 0 32px 0 12px;
+                font-size: 12px;
                 font-weight: 700;
                 color: #18181B;
                 background-color: #FFFFFF;
@@ -306,9 +327,9 @@ class SettingsUI {
             }
             .select-arrow {
                 position: absolute;
-                right: 10px;
+                right: 12px;
                 top: 50%;
-                margin-top: -3px;
+                margin-top: -4px;
                 width: 8px;
                 height: 8px;
                 border-right: 2.2px solid #84CC16;
@@ -317,14 +338,13 @@ class SettingsUI {
                 pointer-events: none;
             }
 
-            /* 输入框 */
             input {
-                width: 270px;
-                height: 32px;
+                width: 320px;
+                height: 36px;
                 border: 2px solid #84CC16;
                 border-radius: 8px;
-                padding: 0 10px;
-                font-size: 11.5px;
+                padding: 0 12px;
+                font-size: 12px;
                 font-weight: 700;
                 color: #18181B;
                 background-color: #FFFFFF;
@@ -338,16 +358,16 @@ class SettingsUI {
             .status-card {
                 background: #D8FA63;
                 border-radius: 10px;
-                padding: 9px 12px;
-                margin-bottom: 10px;
+                padding: 10px 14px;
+                margin-bottom: 12px;
             }
             .status-title {
-                font-size: 10.5px;
+                font-size: 11px;
                 font-weight: 800;
                 color: #18181B;
             }
             .status-desc {
-                font-size: 11px;
+                font-size: 11.5px;
                 font-weight: 700;
                 color: #18181B;
                 margin-top: 2px;
@@ -356,16 +376,16 @@ class SettingsUI {
             /* 按钮组 */
             .btn-group {
                 display: flex;
-                gap: 10px;
+                gap: 12px;
             }
             .btn-test {
                 flex: 1;
-                height: 38px;
+                height: 42px;
                 background: #18181B;
                 color: #FFFFFF;
                 border: none;
                 border-radius: 10px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 800;
                 cursor: pointer;
                 outline: none;
@@ -375,12 +395,12 @@ class SettingsUI {
             }
             .btn-save {
                 flex: 1;
-                height: 38px;
+                height: 42px;
                 background: #D8FA63;
                 color: #18181B;
                 border: 1px solid #C4E840;
                 border-radius: 10px;
-                font-size: 12px;
+                font-size: 13px;
                 font-weight: 800;
                 cursor: pointer;
                 box-shadow: 0 3px 10px rgba(216, 250, 99, 0.35);
@@ -394,12 +414,12 @@ class SettingsUI {
             .ver-bottom {
                 display: flex;
                 justify-content: center;
-                margin-top: 12px;
+                margin-top: 14px;
             }
             .ver-badge {
                 background: #D8FA63;
                 color: #18181B;
-                padding: 3px 14px;
+                padding: 3px 16px;
                 border-radius: 6px;
                 font-size: 11px;
                 font-weight: 800;
@@ -409,8 +429,7 @@ class SettingsUI {
         <body>
             <div class='header'>
                 <div class='header-left'>
-                    <!-- 精准矢量 Logo -->
-                    <img class='logo-img' src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIxMiIgZmlsbD0iIzZFRTdCNyIvPjxyZWN0IHg9IjYiIHk9IjgiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNCIgcng9IjQiIGZpbGw9IiNGRkZGRkYiLz48dGV4dCB4PSIxNCIgeT0iMTkiIGZvbnQtc2l6ZT0iMTEiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QTwvdGV4dD48cmVjdCB4PSIyNCIgeT0iOCIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE0IiByeD0iNCIgZmlsbD0iI0ZGRkZGRiIvPjx0ZXh0IHg9IjMzIiB5PSIxOSIgZm9udC1zaXplPSIxMSIgZm9udC1mYW1pbHk9Ik1pY3Jvc29mdCBZYUhlaSwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+5paHPC90ZXh0PjxyZWN0IHg9IjgiIHk9IjI3IiB3aWR0aD0iMzIiIGhlaWdodD0iMTMiIHJ4PSIzIiBmaWxsPSIjMDY1RjQ2IiBmaWxsLW9wYWNpdHk9IjAuMTUiLz48cmVjdCB4PSIxMSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTciIHk9IjI5IiB3aWR0aD0iNCIgaGVpZ2h0PSIzIiByeD0iMSIgZmlsbD0iIzA2NUY0NiIvPjxyZWN0IHg9IjIzIiB5PSIyOSIgd2lkdGg9IjQiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48cmVjdCB4PSIyOSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTMiIHk9IjM0IiB3aWR0aD0iMjIiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48L3N2Zz4=' />
+                    <img class='logo-img' src='{{LOGO_SRC}}' />
                     <div class='logo-text-box'>
                         <div class='logo-title'>AI TRANSLATOR</div>
                         <div class='logo-subtitle'>with Live Brain</div>
@@ -516,7 +535,8 @@ class SettingsUI {
         </html>
         )"
 
-        html := StrReplace(htmlTemplate, "{{BASE_URL}}", bUrl)
+        html := StrReplace(htmlTemplate, "{{LOGO_SRC}}", logoSrc)
+        html := StrReplace(html, "{{BASE_URL}}", bUrl)
         html := StrReplace(html, "{{MODEL_NAME}}", mdl)
         html := StrReplace(html, "{{API_KEY}}", key)
         html := StrReplace(html, "{{VER}}", ver)
