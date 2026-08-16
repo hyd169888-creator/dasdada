@@ -4,6 +4,7 @@ Persistent(true)
 
 #Include AI_Translate.ahk
 #Include "*i FloatBar.ahk"
+#Include "*i Updater.ahk"
 
 ; ==============================================================================
 ; 注册底层键盘消息与系统关闭消息拦截
@@ -34,6 +35,11 @@ WM_KEYDOWN_ACCELERATOR(wParam, lParam, msg, hwnd) {
 
 WM_CLOSE_INTERCEPT(wParam, lParam, msg, hwnd) {
     if (SettingsUI.gui && hwnd == SettingsUI.gui.Hwnd) {
+        ; 如果当前存在更新弹窗，禁止关闭并触发弹窗抖动
+        if (IsSet(AppUpdater) && AppUpdater.gui) {
+            AppUpdater.ShakeModal()
+            return 0
+        }
         SettingsUI.Hide()
         return 0
     }
@@ -218,14 +224,22 @@ class SettingsUI {
         doc.parentWindow.ahk_call := (action, data) => this.HandleWebAction(action, data)
 
         this.gui := myGui
-        myGui.OnEvent("Close", (guiObj) => (this.Hide(), true))
-        myGui.OnEvent("Escape", (guiObj) => (this.Hide(), true))
+        myGui.OnEvent("Close", (guiObj) => (this.AttemptClose(), true))
+        myGui.OnEvent("Escape", (guiObj) => (this.AttemptClose(), true))
 
         myGui.Show("w520 h790 Center")
         WinSetAlwaysOnTop(0, "ahk_id " . myGui.Hwnd)
         this.ApplyNativeWindowIcons(myGui.Hwnd)
 
         SetTimer(() => this.SyncConfigToWeb(), -50)
+    }
+
+    static AttemptClose() {
+        if (IsSet(AppUpdater) && AppUpdater.gui) {
+            AppUpdater.ShakeModal()
+            return
+        }
+        this.Hide()
     }
 
     static Hide() {
@@ -345,8 +359,7 @@ class SettingsUI {
                 "NVIDIA", Map("base_url", "https://integrate.api.nvidia.com/v1", "model", "meta/llama-3.1-8b-instruct", "api_key", ""),
                 "Qwen", Map("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1", "model", "qwen-plus", "api_key", ""),
                 "DeepSeek", Map("base_url", "https://api.deepseek.com/v1", "model", "deepseek-chat", "api_key", ""),
-                "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", ""),
-                "Custom", Map("base_url", "https://tokenrhythm.studio/v1", "model", "deepseek-v4-flash", "api_key", "", "is_custom", true, "custom_name", "自定义API(默认)")
+                "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", "")
             ),
             "hotkeys", Map(
                 "show_bar", "!y",
@@ -369,7 +382,6 @@ class SettingsUI {
             if (RegExMatch(content, '"target_lang"\s*:\s*"([^"]+)"', &t))
                 defaultMap["target_lang"] := t[1]
 
-            ; 读取所有 Provider (支持动态自定义列表)
             if RegExMatch(content, 's)"providers"\s*:\s*\{(.*)\}\s*,\s*"hotkeys"', &pBlock) {
                 pContent := pBlock[1]
                 pos := 1
@@ -1009,13 +1021,11 @@ class SettingsUI {
                     if (!vp) return;
                     var html = "";
 
-                    // 1. 系统内置
                     for (var k in g_builtinLabels) {
                         var sel = (k === g_currentProvider) ? " selected" : "";
                         html += '<div class="select-option' + sel + '" data-value="' + k + '" onclick="selectOption(\'select-provider\', \'' + k + '\', \'' + g_builtinLabels[k] + '\')">' + g_builtinLabels[k] + '</div>';
                     }
 
-                    // 2. 自定义模型
                     for (var key in g_allConfigs) {
                         if (!g_builtinLabels[key]) {
                             var item = g_allConfigs[key];
@@ -1028,7 +1038,6 @@ class SettingsUI {
                         }
                     }
 
-                    // 3. 常驻添加新自定义
                     html += '<div class="select-option" style="color:#15803D; font-weight:700; border-top:1px dashed #D9DCD2; margin-top:4px;" data-value="__ADD_NEW__" onclick="addNewCustomProvider()">➕ 添加自定义 API...</div>';
                     vp.innerHTML = html;
                 }

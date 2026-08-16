@@ -7,32 +7,28 @@ OnMessage(0x00A1, WM_NCLBUTTONDOWN_LOCK, 2)
 OnMessage(0x0112, WM_SYSCOMMAND_LOCK, 2)
 
 WM_NCLBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
-    ; 拦截鼠标点击标题栏 (HTCAPTION = 2) 引起的窗口拖拽
     if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && wParam == 2)
         return 0
 }
 
 WM_SYSCOMMAND_LOCK(wParam, lParam, msg, hwnd) {
-    ; 拦截系统移动指令 (SC_MOVE = 0xF010)
     if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && (wParam & 0xFFF0) == 0xF010)
         return 0
 }
 
 class AppUpdater {
-    ; 默认初始版本（未产生本地版本记录时的兜底版本）
     static defaultVersion := "1.0.0"
     static versionFile    := A_ScriptDir . "\version.txt"
     static gui            := 0
+    static isShaking      := false
     
     ; GitHub 仓库配置
     static githubUser := "hyd169888-creator"
     static githubRepo := "dasdada"
     static branch     := "main"
     
-    ; 国内加速镜像前缀
     static rawUrlBase := "https://ghproxy.net/https://raw.githubusercontent.com/"
 
-    ; 读取当前实际生效的版本号
     static GetCurrentVersion() {
         if FileExist(this.versionFile) {
             try {
@@ -44,7 +40,6 @@ class AppUpdater {
         return this.defaultVersion
     }
 
-    ; 将新版本号持久化保存到本地
     static SaveCurrentVersion(newVer) {
         try {
             f := FileOpen(this.versionFile, "w", "UTF-8")
@@ -53,7 +48,6 @@ class AppUpdater {
         }
     }
 
-    ; 检查更新入口
     static Check(silent := false) {
         url := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/version.json"
         curVer := this.GetCurrentVersion()
@@ -84,7 +78,6 @@ class AppUpdater {
             changelog := remoteInfo.Has("changelog") ? remoteInfo["changelog"] : "常规性能优化与体验提升。"
             filesToUpdate := remoteInfo.Has("files") ? remoteInfo["files"] : []
 
-            ; 比对版本号
             if (this.CompareVersion(latestVer, curVer) > 0) {
                 this.ShowUpdateModal(latestVer, curVer, changelog, filesToUpdate)
             } else {
@@ -97,18 +90,38 @@ class AppUpdater {
         }
     }
 
-    ; 自定义更新弹窗 (无关闭按钮、不可移动、置顶锁死)
+    ; =========================================================================
+    ; 窗口快速抖动警示动画
+    ; =========================================================================
+    static ShakeModal() {
+        if (!this.gui || this.isShaking)
+            return
+        
+        this.isShaking := true
+        this.gui.GetPos(&gx, &gy, &gw, &gh)
+        
+        offsets := [-10, 10, -8, 8, -5, 5, 0]
+        for dx in offsets {
+            try this.gui.Move(gx + dx, gy)
+            Sleep(25)
+        }
+        this.isShaking := false
+    }
+
+    ; 自定义更新弹窗 (模态锁定主窗口 + 居中置顶)
     static ShowUpdateModal(latestVer, currentVer, changelog, files) {
         if (this.gui != 0) {
-            this.gui.Show("w410 h320 Center")
+            this.ShakeModal()
             return
         }
 
-        ; -SysMenu: 彻底移除右上角 X 关闭按钮与系统控制菜单
-        ; +AlwaysOnTop: 始终最前置顶
-        opt := "+AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
+        ownerHwnd := 0
         if (WinExist("AI 智能打字翻译 - 设置中心"))
-            opt .= " +Owner" . WinGetID("AI 智能打字翻译 - 设置中心")
+            ownerHwnd := WinGetID("AI 智能打字翻译 - 设置中心")
+
+        opt := "+AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
+        if (ownerHwnd)
+            opt .= " +Owner" . ownerHwnd
 
         uGui := Gui(opt, "发现新版本")
         uGui.MarginX := 0
@@ -125,7 +138,6 @@ class AppUpdater {
         html := StrReplace(html, "{{LATEST_VER}}", latestVer)
         html := StrReplace(html, "{{CURRENT_VER}}", currentVer)
 
-        ; 格式化换行
         htmlLog := StrReplace(changelog, "`n", "<br>")
         htmlLog := StrReplace(htmlLog, "\n", "<br>")
         html := StrReplace(html, "{{CHANGELOG}}", htmlLog)
@@ -135,13 +147,16 @@ class AppUpdater {
         doc.write(html)
         doc.close()
 
-        ; 绑定前端下载触发函数
         doc.parentWindow.ahk_download := () => this.StartDownload(uGui, doc, files, latestVer)
 
         this.gui := uGui
-        ; 强行关闭窗口将直接退出程序（强制更新）
         uGui.OnEvent("Close", (*) => ExitApp())
         uGui.Show("w410 h320 Center")
+
+        ; 模态禁用主窗口（防止拖动或点击主窗口）
+        if (ownerHwnd) {
+            try WinSetEnabled(0, "ahk_id " . ownerHwnd)
+        }
     }
 
     ; 执行热下载与动态版本保存
@@ -177,6 +192,10 @@ class AppUpdater {
             this.SaveCurrentVersion(newVer)
             try doc.parentWindow.setProgress("✅ 升级至 v" . newVer . " 成功！正在重启...")
             Sleep(800)
+            
+            if (WinExist("AI 智能打字翻译 - 设置中心"))
+                try WinSetEnabled(1, WinGetID("AI 智能打字翻译 - 设置中心"))
+
             uGui.Destroy()
             this.gui := 0
             Reload()
@@ -185,7 +204,6 @@ class AppUpdater {
         }
     }
 
-    ; 提示弹窗
     static ShowAlert(msg, title := "提示", type := "info") {
         aGui := Gui("-MinimizeBox -MaximizeBox", title)
         aGui.BackColor := "FFFFFF"
@@ -202,7 +220,6 @@ class AppUpdater {
         aGui.Show("w328 h105 Center")
     }
 
-    ; 语义化版本比对
     static CompareVersion(v1, v2) {
         a1 := StrSplit(v1, "."), a2 := StrSplit(v2, ".")
         maxLen := Max(a1.Length, a2.Length)
@@ -217,7 +234,6 @@ class AppUpdater {
         return 0
     }
 
-    ; JSON 解析器
     static ParseJson(jsonStr) {
         res := Map()
         if RegExMatch(jsonStr, 's)\"version\"\s*:\s*\"([^\"]+)\"', &m)
@@ -237,9 +253,6 @@ class AppUpdater {
         return res
     }
 
-    ; =========================================================================
-    ; 弹窗 HTML 模板 (青柠绿圆角胶囊滑动条)
-    ; =========================================================================
     static GetModalHTML() {
         return '
         (
@@ -264,7 +277,6 @@ class AppUpdater {
                 
                 .sec-title { font-size: 12.5px; font-weight: 800; color: #334155; margin-bottom: 6px; }
 
-                /* 更新内容滑动卡片外壳 */
                 .log-card-container {
                     position: relative;
                     width: 100%;
@@ -277,7 +289,6 @@ class AppUpdater {
                     overflow: hidden;
                 }
 
-                /* 隐藏默认系统滚动条的视口 */
                 .log-scroll-viewport {
                     width: calc(100% + 22px);
                     height: 100%;
@@ -300,7 +311,6 @@ class AppUpdater {
                     height: 0;
                 }
 
-                /* 灰色胶囊滑轨 */
                 .capsule-track {
                     position: absolute;
                     top: 5px;
@@ -313,7 +323,6 @@ class AppUpdater {
                     z-index: 100;
                 }
 
-                /* 青绿色圆角滑块 */
                 .capsule-thumb {
                     position: absolute;
                     top: 0;
