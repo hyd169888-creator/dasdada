@@ -62,7 +62,7 @@ class AppUpdater {
         return ""
     }
 
-    ; 窗口抖动提醒 (点击主窗口或主窗口[X]时触发)
+    ; 窗口抖动提醒
     static ShakeModal() {
         if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
             return
@@ -80,14 +80,14 @@ class AppUpdater {
         }
     }
 
-    ; 拦截移动/关闭消息：禁止拖动窗口，拦截 [X] 并抖动提醒，保留最小化
+    ; 拦截移动/关闭消息：禁止拖动窗口，拦截主窗口关闭并抖动提示
     static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
             cmd := wParam & 0xFFF0
             ; 拦截移动 (SC_MOVE = 0xF010)
             if (cmd == 0xF010)
                 return 0
-            ; 拦截关闭 (SC_CLOSE = 0xF060) 并抖动提醒必须更新
+            ; 拦截主程序关闭指令 (SC_CLOSE = 0xF060)
             if (cmd == 0xF060) {
                 AppUpdater.ShakeModal()
                 return 0
@@ -97,7 +97,7 @@ class AppUpdater {
 
     static _OnWmNcLButtonDown(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            ; 点击标题栏 (HTCAPTION = 2) 或点击关闭按钮 (HTCLOSE = 20)
+            ; 点击标题栏 (HTCAPTION = 2) 或右上角关闭 (HTCLOSE = 20)
             if (wParam == 2 || wParam == 20) {
                 AppUpdater.ShakeModal()
                 return 0
@@ -105,9 +105,28 @@ class AppUpdater {
         }
     }
 
-    ; 检查更新入口
+    ; 优先级握手：等待主界面完全渲染就绪后立即触发检查
+    static StartAutoCheck() {
+        SetTimer(() => this._WaitForMainAndCheck(), -60)
+    }
+
+    static _WaitForMainAndCheck() {
+        ; 循环确认主界面已完全出现在屏幕上
+        Loop 25 {
+            if (hwnd := WinExist("AI 智能打字翻译 - 设置中心")) {
+                if DllCall("IsWindowVisible", "Ptr", hwnd) {
+                    this.mainHwnd := hwnd
+                    break
+                }
+            }
+            Sleep(80)
+        }
+        this._DoCheck(true)
+    }
+
+    ; 手动检查入口
     static Check(isSilent := false) {
-        SetTimer(() => this._DoCheck(isSilent), -150)
+        SetTimer(() => this._DoCheck(isSilent), -100)
     }
 
     static _DoCheck(isSilent) {
@@ -160,29 +179,37 @@ class AppUpdater {
         return str
     }
 
-    ; 构建现代质感更新弹窗
+    ; 展现强制模态更新弹窗
     static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
         if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
             this.ShakeModal()
             return
         }
 
-        this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
-        
-        ; 注册全局防拖动与拦截器
+        ; 再次校验主界面句柄
+        if (!this.mainHwnd || !WinExist("ahk_id " . this.mainHwnd)) {
+            this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
+        }
+
+        ; 注册全局防拖动与消息拦截器
         if (!this.isHooked) {
             OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
             OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
             this.isHooked := true
         }
 
-        ; 父子属主关系 (+Owner)：在主程序上方，可跟随最小化，并可被其他软件/浏览器正常覆盖
+        ; 严格建立父子属主关系 (+Owner) 与模态阻断
         ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
         g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
         g.BackColor := "0xF8FAF5"
         g.MarginX := 0
         g.MarginY := 0
         this.gui := g
+
+        ; 禁用主界面所有输入与点击交互
+        if (this.mainHwnd) {
+            WinSetEnabled(0, "ahk_id " . this.mainHwnd)
+        }
 
         ; 嵌入 Web 渲染容器
         wbCtl := g.Add("ActiveX", "w390 h430", "Shell.Explorer")
@@ -192,7 +219,7 @@ class AppUpdater {
         while (this.wb.ReadyState != 4)
             Sleep(10)
 
-        ; 监听前端点击
+        ; 监听前端更新指令
         ComObjConnect(this.wb, {
             TitleChange: (text, *) => (
                 (text == "DO_UPDATE") ? SetTimer(() => this.PerformUpdate(remoteVer, fileList), -10) : 0
@@ -201,7 +228,7 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; HTML 模板（带标准的 AHK v2 多行续行括号）
+        ; 统一质感 HTML 模板
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -296,7 +323,7 @@ class AppUpdater {
                 text-align: center;
                 margin-top: 12px;
             }
-            /* 荧光绿主操作按钮 (与主程序[保存并生效]同款) */
+            /* 与主程序 [保存并生效] 同款荧光绿按键 */
             .btn-update {
                 width: 100%;
                 height: 42px;
@@ -358,7 +385,7 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
-        ; 居中显示于主程序上方
+        ; 居中锚定在主程序正上方
         if (this.mainHwnd) {
             WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
             dx := mx + (mw - 390) // 2
@@ -451,6 +478,10 @@ class AppUpdater {
 
             this.SetWebStatus("✅ 更新完成！正在为您重新加载程序...")
             Sleep(800)
+
+            ; 恢复主窗口
+            if (this.mainHwnd && WinExist("ahk_id " . this.mainHwnd))
+                WinSetEnabled(1, "ahk_id " . this.mainHwnd)
 
             ; 重启程序
             if A_IsCompiled {

@@ -13,10 +13,10 @@ Persistent(true)
 InitTrayMenu() {
     A_IconTip := "AI 智能打字翻译"
     tray := A_TrayMenu
-    tray.Delete() ; 清空默认菜单项
+    tray.Delete()
     tray.Add("🖥️ 打开设置中心", (*) => SettingsUI.Show())
     tray.Add("🔄 检查更新", (*) => AppUpdater.Check(false))
-    tray.Add() ; 分割线
+    tray.Add()
     tray.Add("❌ 退出程序", (*) => ExitApp())
     tray.Default := "🖥️ 打开设置中心"
 }
@@ -53,13 +53,13 @@ RegisterAllHotkeys() {
     }
 }
 
-; 初始化托盘菜单与快捷键
+; 1. 初始化托盘与快捷键
 InitTrayMenu()
 SettingsUI.onHotkeysUpdatedCallback := RegisterAllHotkeys
 RegisterAllHotkeys()
 
-; 静默检查更新
-AppUpdater.Check(true)
-
-; 启动时直接展示设置中心
+; 2. 优先呼出并完整加载主界面
 SettingsUI.Show()
+
+; 3. 严格在主程序完全加载并显示后，立即发起更新检查
+AppUpdater.StartAutoCheck()
