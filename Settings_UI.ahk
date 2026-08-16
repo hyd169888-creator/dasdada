@@ -66,7 +66,7 @@ class SettingsUI {
         g.MarginY := 0
         this.gui := g
 
-        wbCtl := g.Add("ActiveX", "w460 h735", "Shell.Explorer")
+        wbCtl := g.Add("ActiveX", "w450 h720", "Shell.Explorer")
         this.wv := wbCtl.Value
         this.wv.silent := true
         this.wv.Navigate("about:blank")
@@ -90,7 +90,7 @@ class SettingsUI {
         doc.parentWindow.ahkBridge := bridge
 
         g.OnEvent("Close", (*) => g.Hide())
-        g.Show("w460 h735 Center")
+        g.Show("w450 h720 Center")
     }
 
     static _OnSaveSettings(sourceLang, targetLang, provider, baseUrl, model, apiKey) {
@@ -138,9 +138,9 @@ class SettingsUI {
     static _BuildHtml(cfg, ver) {
         sLang := cfg.Has("source_lang") ? cfg["source_lang"] : "auto"
         tLang := cfg.Has("target_lang") ? cfg["target_lang"] : "en"
-        prov := cfg.Has("provider") ? cfg["provider"] : "nvidia"
-        bUrl := cfg.Has("base_url") ? cfg["base_url"] : "https://integrate.api.nvidia.com/v1"
-        mdl := cfg.Has("model") ? cfg["model"] : "meta/llama-3.1-8b-instruct"
+        prov := cfg.Has("provider") ? cfg["provider"] : "custom"
+        bUrl := cfg.Has("base_url") ? cfg["base_url"] : "https://tokenrhythm.studio/v1"
+        mdl := cfg.Has("model") ? cfg["model"] : "deepseek-v4-flash"
         key := cfg.Has("api_key") ? cfg["api_key"] : ""
 
         optSLangAuto := (sLang == "auto") ? "selected" : ""
@@ -174,7 +174,7 @@ class SettingsUI {
             }
             html, body {
                 background: #F8FAF5;
-                padding: 16px 20px;
+                padding: 14px 18px;
                 color: #18181B;
                 overflow: hidden;
                 height: 100%;
@@ -183,50 +183,19 @@ class SettingsUI {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 12px;
+                margin-bottom: 10px;
             }
             .header-left {
                 display: flex;
                 align-items: center;
-                gap: 8px;
+                gap: 10px;
             }
-            /* 图标徽章 */
-            .logo-wrap {
+            /* 1:1 矢量 Logo 图标 */
+            .logo-img {
                 width: 36px;
-                height: 32px;
-                background: #A7F3D0;
-                border-radius: 8px;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 1px 4px rgba(167, 243, 208, 0.6);
+                height: 36px;
+                display: block;
             }
-            .logo-badges {
-                display: flex;
-                gap: 2px;
-            }
-            .bubble-icon {
-                background: #FFFFFF;
-                color: #059669;
-                font-size: 8px;
-                font-weight: 900;
-                padding: 1px 2px;
-                border-radius: 3px;
-                line-height: 1;
-            }
-            .keyboard-dots {
-                display: flex;
-                gap: 1px;
-                margin-top: 2px;
-            }
-            .kbd-dot {
-                width: 3px;
-                height: 2px;
-                background: #059669;
-                border-radius: 1px;
-            }
-
             .logo-text-box {
                 display: flex;
                 flex-direction: column;
@@ -263,22 +232,22 @@ class SettingsUI {
             }
             
             .tagline {
-                font-size: 11px;
+                font-size: 10.5px;
                 font-weight: 800;
                 color: #6366F1;
                 letter-spacing: 0.5px;
                 margin-bottom: 2px;
             }
             .main-title {
-                font-size: 17px;
+                font-size: 16.5px;
                 font-weight: 900;
                 color: #0F172A;
                 margin-bottom: 2px;
             }
             .main-desc {
-                font-size: 11px;
+                font-size: 10.5px;
                 color: #64748B;
-                margin-bottom: 14px;
+                margin-bottom: 12px;
             }
 
             /* 卡片容器 */
@@ -286,59 +255,80 @@ class SettingsUI {
                 background: #FFFFFF;
                 border: 1.5px solid #E2E8F0;
                 border-radius: 12px;
-                padding: 14px 16px;
-                margin-bottom: 12px;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+                padding: 12px 14px;
+                margin-bottom: 10px;
             }
             .card-label {
-                font-size: 11px;
+                font-size: 10.5px;
                 font-weight: 800;
                 color: #64748B;
                 letter-spacing: 0.5px;
-                margin-bottom: 10px;
+                margin-bottom: 8px;
             }
             .field-row {
                 display: flex;
                 align-items: center;
                 justify-content: space-between;
-                margin-bottom: 10px;
+                margin-bottom: 8px;
             }
             .field-row:last-child {
                 margin-bottom: 0;
             }
             .field-label {
-                font-size: 12px;
+                font-size: 11.5px;
                 font-weight: 800;
                 color: #334155;
             }
 
-            /* 彻底消除 IE 默认灰块箭头的 CSS 规则 */
-            select::-ms-expand {
-                display: none;
+            /* 下拉框独立容器架构，确保翠绿箭头绝对可见 */
+            .select-wrap {
+                position: relative;
+                width: 270px;
             }
-
-            /* 1:1 还原图 2 的绿边圆润输入框与下拉框 */
-            select, input {
-                width: 285px;
-                height: 34px;
+            .select-wrap select {
+                width: 100%;
+                height: 32px;
                 border: 2px solid #84CC16;
                 border-radius: 8px;
-                padding: 0 10px;
-                font-size: 12px;
+                padding: 0 28px 0 10px;
+                font-size: 11.5px;
                 font-weight: 700;
                 color: #18181B;
                 background-color: #FFFFFF;
                 outline: none;
-            }
-            select {
-                appearance: none;
+                cursor: pointer;
                 -webkit-appearance: none;
                 -moz-appearance: none;
-                background-image: url('data:image/svg+xml;utf8,<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"%2384CC16\" stroke-width=\"3\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polyline points=\"6 9 12 15 18 9\"></polyline></svg>');
-                background-repeat: no-repeat;
-                background-position: right 10px center;
-                padding-right: 28px;
-                cursor: pointer;
+                appearance: none;
+            }
+            .select-wrap select::-ms-expand {
+                display: none;
+            }
+            .select-arrow {
+                position: absolute;
+                right: 10px;
+                top: 50%;
+                margin-top: -3px;
+                width: 8px;
+                height: 8px;
+                border-right: 2.2px solid #84CC16;
+                border-bottom: 2.2px solid #84CC16;
+                transform: rotate(45deg);
+                pointer-events: none;
+            }
+
+            /* 输入框 */
+            input {
+                width: 270px;
+                height: 32px;
+                border: 2px solid #84CC16;
+                border-radius: 8px;
+                padding: 0 10px;
+                font-size: 11.5px;
+                font-weight: 700;
+                color: #18181B;
+                background-color: #FFFFFF;
+                outline: none;
             }
             input:focus, select:focus {
                 border-color: #65A30D;
@@ -348,11 +338,11 @@ class SettingsUI {
             .status-card {
                 background: #D8FA63;
                 border-radius: 10px;
-                padding: 10px 14px;
-                margin-bottom: 12px;
+                padding: 9px 12px;
+                margin-bottom: 10px;
             }
             .status-title {
-                font-size: 11px;
+                font-size: 10.5px;
                 font-weight: 800;
                 color: #18181B;
             }
@@ -404,7 +394,7 @@ class SettingsUI {
             .ver-bottom {
                 display: flex;
                 justify-content: center;
-                margin-top: 14px;
+                margin-top: 12px;
             }
             .ver-badge {
                 background: #D8FA63;
@@ -419,18 +409,8 @@ class SettingsUI {
         <body>
             <div class='header'>
                 <div class='header-left'>
-                    <div class='logo-wrap'>
-                        <div class='logo-badges'>
-                            <span class='bubble-icon'>A</span>
-                            <span class='bubble-icon'>文</span>
-                        </div>
-                        <div class='keyboard-dots'>
-                            <div class='kbd-dot'></div>
-                            <div class='kbd-dot'></div>
-                            <div class='kbd-dot'></div>
-                            <div class='kbd-dot'></div>
-                        </div>
-                    </div>
+                    <!-- 精准矢量 Logo -->
+                    <img class='logo-img' src='data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA0OCA0OCIgd2lkdGg9IjQ4IiBoZWlnaHQ9IjQ4Ij48cmVjdCB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHJ4PSIxMiIgZmlsbD0iIzZFRTdCNyIvPjxyZWN0IHg9IjYiIHk9IjgiIHdpZHRoPSIxNiIgaGVpZ2h0PSIxNCIgcng9IjQiIGZpbGw9IiNGRkZGRkYiLz48dGV4dCB4PSIxNCIgeT0iMTkiIGZvbnQtc2l6ZT0iMTEiIGZvbnQtZmFtaWx5PSJBcmlhbCwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+QTwvdGV4dD48cmVjdCB4PSIyNCIgeT0iOCIgd2lkdGg9IjE4IiBoZWlnaHQ9IjE0IiByeD0iNCIgZmlsbD0iI0ZGRkZGRiIvPjx0ZXh0IHg9IjMzIiB5PSIxOSIgZm9udC1zaXplPSIxMSIgZm9udC1mYW1pbHk9Ik1pY3Jvc29mdCBZYUhlaSwgc2Fucy1zZXJpZiIgZm9udC13ZWlnaHQ9IjkwMCIgZmlsbD0iIzA2NUY0NiIgdGV4dC1hbmNob3I9Im1pZGRsZSI+5paHPC90ZXh0PjxyZWN0IHg9IjgiIHk9IjI3IiB3aWR0aD0iMzIiIGhlaWdodD0iMTMiIHJ4PSIzIiBmaWxsPSIjMDY1RjQ2IiBmaWxsLW9wYWNpdHk9IjAuMTUiLz48cmVjdCB4PSIxMSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTciIHk9IjI5IiB3aWR0aD0iNCIgaGVpZ2h0PSIzIiByeD0iMSIgZmlsbD0iIzA2NUY0NiIvPjxyZWN0IHg9IjIzIiB5PSIyOSIgd2lkdGg9IjQiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48cmVjdCB4PSIyOSIgeT0iMjkiIHdpZHRoPSI0IiBoZWlnaHQ9IjMiIHJ4PSIxIiBmaWxsPSIjMDY1RjQ2Ii8+PHJlY3QgeD0iMTMiIHk9IjM0IiB3aWR0aD0iMjIiIGhlaWdodD0iMyIgcng9IjEiIGZpbGw9IiMwNjVGNDYiLz48L3N2Zz4=' />
                     <div class='logo-text-box'>
                         <div class='logo-title'>AI TRANSLATOR</div>
                         <div class='logo-subtitle'>with Live Brain</div>
@@ -450,21 +430,27 @@ class SettingsUI {
                 <div class='card-label'>LANGUAGE PREFERENCE · 语言设定</div>
                 <div class='field-row'>
                     <span class='field-label'>源语言</span>
-                    <select id='sourceLang'>
-                        <option value='auto' {{OPT_S_AUTO}}>自动识别 (中英双向智能互译)</option>
-                        <option value='zh' {{OPT_S_ZH}}>Chinese (中文)</option>
-                        <option value='en' {{OPT_S_EN}}>English (英语)</option>
-                    </select>
+                    <div class='select-wrap'>
+                        <select id='sourceLang'>
+                            <option value='auto' {{OPT_S_AUTO}}>自动识别 (中英双向智能互译)</option>
+                            <option value='zh' {{OPT_S_ZH}}>Chinese (中文)</option>
+                            <option value='en' {{OPT_S_EN}}>English (英语)</option>
+                        </select>
+                        <div class='select-arrow'></div>
+                    </div>
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>目标语言</span>
-                    <select id='targetLang'>
-                        <option value='en' {{OPT_T_EN}}>English (英语)</option>
-                        <option value='zh' {{OPT_T_ZH}}>Chinese (中文)</option>
-                        <option value='pl' {{OPT_T_PL}}>Polish (波兰语)</option>
-                        <option value='ja' {{OPT_T_JA}}>Japanese (日语)</option>
-                        <option value='ko' {{OPT_T_KO}}>Korean (韩语)</option>
-                    </select>
+                    <div class='select-wrap'>
+                        <select id='targetLang'>
+                            <option value='en' {{OPT_T_EN}}>English (英语)</option>
+                            <option value='zh' {{OPT_T_ZH}}>Chinese (中文)</option>
+                            <option value='pl' {{OPT_T_PL}}>Polish (波兰语)</option>
+                            <option value='ja' {{OPT_T_JA}}>Japanese (日语)</option>
+                            <option value='ko' {{OPT_T_KO}}>Korean (韩语)</option>
+                        </select>
+                        <div class='select-arrow'></div>
+                    </div>
                 </div>
             </div>
 
@@ -472,10 +458,13 @@ class SettingsUI {
                 <div class='card-label'>AI ENGINE & ENDPOINT · 大模型配置</div>
                 <div class='field-row'>
                     <span class='field-label'>AI 平台</span>
-                    <select id='provider'>
-                        <option value='nvidia' {{OPT_PROV_NVIDIA}}>NVIDIA·免费满血模型 (需魔法)</option>
-                        <option value='custom' {{OPT_PROV_CUSTOM}}>自定义API(OpenAI 协议兼容)</option>
-                    </select>
+                    <div class='select-wrap'>
+                        <select id='provider'>
+                            <option value='custom' {{OPT_PROV_CUSTOM}}>自定义API(OpenAI 协议兼容)</option>
+                            <option value='nvidia' {{OPT_PROV_NVIDIA}}>NVIDIA·免费满血模型 (需魔法)</option>
+                        </select>
+                        <div class='select-arrow'></div>
+                    </div>
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>Base URL</span>
@@ -493,7 +482,7 @@ class SettingsUI {
 
             <div class='status-card'>
                 <div class='status-title'>SYSTEM STATUS · 状态反馈</div>
-                <div class='status-desc'>💡 准备就绪，可点击下方按钮发起连通性探针测试。</div>
+                <div class='status-desc'>已切换至「Custom」，专属配置已自动载入。</div>
             </div>
 
             <div class='btn-group'>
@@ -549,9 +538,9 @@ class SettingsUI {
         cfg := Map(
             "source_lang", RegExMatch(jsonStr, '"source_lang"\s*:\s*"([^"]+)"', &m1) ? m1[1] : "auto",
             "target_lang", RegExMatch(jsonStr, '"target_lang"\s*:\s*"([^"]+)"', &m2) ? m2[1] : "en",
-            "provider", RegExMatch(jsonStr, '"provider"\s*:\s*"([^"]+)"', &m3) ? m3[1] : "nvidia",
-            "base_url", RegExMatch(jsonStr, '"base_url"\s*:\s*"([^"]+)"', &m4) ? m4[1] : "https://integrate.api.nvidia.com/v1",
-            "model", RegExMatch(jsonStr, '"model"\s*:\s*"([^"]+)"', &m5) ? m5[1] : "meta/llama-3.1-8b-instruct",
+            "provider", RegExMatch(jsonStr, '"provider"\s*:\s*"([^"]+)"', &m3) ? m3[1] : "custom",
+            "base_url", RegExMatch(jsonStr, '"base_url"\s*:\s*"([^"]+)"', &m4) ? m4[1] : "https://tokenrhythm.studio/v1",
+            "model", RegExMatch(jsonStr, '"model"\s*:\s*"([^"]+)"', &m5) ? m5[1] : "deepseek-v4-flash",
             "api_key", RegExMatch(jsonStr, '"api_key"\s*:\s*"([^"]*)"', &m6) ? m6[1] : "",
             "hotkeys", Map(
                 "show_bar", RegExMatch(jsonStr, '"show_bar"\s*:\s*"([^"]+)"', &h1) ? h1[1] : "!y",
