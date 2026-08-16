@@ -1,38 +1,59 @@
 #Requires AutoHotkey v2.0
 
 ; ==============================================================================
-; 注册底层窗口消息拦截：禁止移动/拖拽更新窗口，强制固定居中
+; 注册底层窗口消息拦截：锁定拖拽、拦截无效点击并触发更新按钮抖动
 ; ==============================================================================
 OnMessage(0x00A1, WM_NCLBUTTONDOWN_LOCK, 2)
 OnMessage(0x0112, WM_SYSCOMMAND_LOCK, 2)
+OnMessage(0x0021, WM_NCHITTEST_LOCK, 2)     
+OnMessage(0x0201, WM_LBUTTONDOWN_LOCK, 2)   
 
 WM_NCLBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
-    ; 拦截鼠标点击标题栏 (HTCAPTION = 2) 引起的窗口拖拽
-    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && wParam == 2)
+    mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
+    if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
+        try AppUpdater.TriggerButtonShake()
         return 0
+    }
+}
+
+WM_NCHITTEST_LOCK(wParam, lParam, msg, hwnd) {
+    mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
+    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd) {
+        return 1 
+    }
 }
 
 WM_SYSCOMMAND_LOCK(wParam, lParam, msg, hwnd) {
-    ; 拦截系统移动指令 (SC_MOVE = 0xF010)
-    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && (wParam & 0xFFF0) == 0xF010)
-        return 0
+    cmd := wParam & 0xFFF0
+    mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
+    
+    if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
+        if (cmd == 0xF010 || cmd == 0xF060 || cmd == 0xF020) {
+            try AppUpdater.TriggerButtonShake()
+            return 0
+        }
+    }
+}
+
+WM_LBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
+    mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
+    if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
+        try AppUpdater.TriggerButtonShake()
+    }
 }
 
 class AppUpdater {
-    ; 默认初始版本（未产生本地版本记录时的兜底版本）
     static defaultVersion := "1.0.0"
     static versionFile    := A_ScriptDir . "\version.txt"
     static gui            := 0
+    static wbInst         := 0
     
-    ; GitHub 仓库配置
     static githubUser := "hyd169888-creator"
     static githubRepo := "dasdada"
     static branch     := "main"
     
-    ; 国内加速镜像前缀
     static rawUrlBase := "https://ghproxy.net/https://raw.githubusercontent.com/"
 
-    ; 读取当前实际生效的版本号
     static GetCurrentVersion() {
         if FileExist(this.versionFile) {
             try {
@@ -44,7 +65,6 @@ class AppUpdater {
         return this.defaultVersion
     }
 
-    ; 将新版本号持久化保存到本地
     static SaveCurrentVersion(newVer) {
         try {
             f := FileOpen(this.versionFile, "w", "UTF-8")
@@ -53,17 +73,18 @@ class AppUpdater {
         }
     }
 
-    ; 检查更新入口
+    ; 优化后的极速检查更新入口（缩短超时时间，实现 1 秒内响应）
     static Check(silent := false) {
-        url := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/version.json"
+        url := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/version.json?t=" . A_TickCount
         curVer := this.GetCurrentVersion()
         
         try {
             http := ComObject("WinHttp.WinHttpRequest.5.1")
             http.Open("GET", url, true)
-            http.SetTimeouts(2000, 2000, 3000, 3000)
+            ; 将连接与响应超时从 2~3 秒大幅压缩至 800ms ~ 1500ms
+            http.SetTimeouts(800, 800, 1200, 1500)
             http.Send()
-            http.WaitForResponse(3)
+            http.WaitForResponse(1.5) ; 最多等待 1.5 秒，大幅提升弹窗速度
             
             if (http.Status != 200) {
                 if (!silent)
@@ -84,7 +105,6 @@ class AppUpdater {
             changelog := remoteInfo.Has("changelog") ? remoteInfo["changelog"] : "常规性能优化与体验提升。"
             filesToUpdate := remoteInfo.Has("files") ? remoteInfo["files"] : []
 
-            ; 比对版本号
             if (this.CompareVersion(latestVer, curVer) > 0) {
                 this.ShowUpdateModal(latestVer, curVer, changelog, filesToUpdate)
             } else {
@@ -97,54 +117,55 @@ class AppUpdater {
         }
     }
 
-    ; 自定义更新弹窗 (无关闭按钮、不可移动、置顶锁死)
     static ShowUpdateModal(latestVer, currentVer, changelog, files) {
         if (this.gui != 0) {
-            this.gui.Show("w410 h320 Center")
+            this.gui.Show("w410 h390 Center")
             return
         }
 
-        ; -SysMenu: 彻底移除右上角 X 关闭按钮与系统控制菜单
-        ; +AlwaysOnTop: 始终最前置顶
-        opt := "+AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
-        if (WinExist("AI 智能打字翻译 - 设置中心"))
-            opt .= " +Owner" . WinGetID("AI 智能打字翻译 - 设置中心")
+        opt := "-Caption +AlwaysOnTop"
+        if (IsSet(SettingsUI) && SettingsUI.gui)
+            opt .= " +Owner" . SettingsUI.gui.Hwnd
 
-        uGui := Gui(opt, "发现新版本")
+        uGui := Gui(opt, "系统更新")
         uGui.MarginX := 0
         uGui.MarginY := 0
         uGui.BackColor := "FFFFFF"
         
-        wbCtrl := uGui.AddActiveX("x0 y0 w410 h320", "Shell.Explorer")
-        wbCtrl.Value.Silent := true
-        wbCtrl.Value.Navigate("about:blank")
-        while wbCtrl.Value.ReadyState != 4
+        wbCtrl := uGui.AddActiveX("x0 y0 w410 h390", "Shell.Explorer")
+        this.wbInst := wbCtrl.Value
+        this.wbInst.Silent := true
+        this.wbInst.Navigate("about:blank")
+        while this.wbInst.ReadyState != 4
             Sleep(10)
 
         html := this.GetModalHTML()
         html := StrReplace(html, "{{LATEST_VER}}", latestVer)
         html := StrReplace(html, "{{CURRENT_VER}}", currentVer)
 
-        ; 格式化换行
         htmlLog := StrReplace(changelog, "`n", "<br>")
         htmlLog := StrReplace(htmlLog, "\n", "<br>")
         html := StrReplace(html, "{{CHANGELOG}}", htmlLog)
 
-        doc := wbCtrl.Value.Document
+        doc := this.wbInst.Document
         doc.open()
         doc.write(html)
         doc.close()
 
-        ; 绑定前端下载触发函数
         doc.parentWindow.ahk_download := () => this.StartDownload(uGui, doc, files, latestVer)
 
         this.gui := uGui
-        ; 强行关闭窗口将直接退出程序（强制更新）
-        uGui.OnEvent("Close", (*) => ExitApp())
-        uGui.Show("w410 h320 Center")
+        uGui.Show("w410 h390 Center")
     }
 
-    ; 执行热下载与动态版本保存
+    static TriggerButtonShake() {
+        try {
+            if (this.wbInst && this.wbInst.Document && this.wbInst.Document.parentWindow) {
+                this.wbInst.Document.parentWindow.shakeButton()
+            }
+        }
+    }
+
     static StartDownload(uGui, doc, files, newVer) {
         if (files.Length == 0) {
             try doc.parentWindow.setFailed("⚠️ 更新列表中没有待下载的文件")
@@ -179,13 +200,13 @@ class AppUpdater {
             Sleep(800)
             uGui.Destroy()
             this.gui := 0
+            this.wbInst := 0
             Reload()
         } else {
             try doc.parentWindow.setFailed("❌ 下载失败，请检查网络后重试")
         }
     }
 
-    ; 提示弹窗
     static ShowAlert(msg, title := "提示", type := "info") {
         aGui := Gui("-MinimizeBox -MaximizeBox", title)
         aGui.BackColor := "FFFFFF"
@@ -202,7 +223,6 @@ class AppUpdater {
         aGui.Show("w328 h105 Center")
     }
 
-    ; 语义化版本比对
     static CompareVersion(v1, v2) {
         a1 := StrSplit(v1, "."), a2 := StrSplit(v2, ".")
         maxLen := Max(a1.Length, a2.Length)
@@ -217,7 +237,6 @@ class AppUpdater {
         return 0
     }
 
-    ; JSON 解析器
     static ParseJson(jsonStr) {
         res := Map()
         if RegExMatch(jsonStr, 's)\"version\"\s*:\s*\"([^\"]+)\"', &m)
@@ -237,9 +256,6 @@ class AppUpdater {
         return res
     }
 
-    ; =========================================================================
-    ; 弹窗 HTML 模板 (青柠绿圆角胶囊滑动条)
-    ; =========================================================================
     static GetModalHTML() {
         return '
         (
@@ -253,22 +269,40 @@ class AppUpdater {
                 html, body { width: 100%; height: 100%; overflow: hidden; background-color: #FFFFFF; color: #18181B; user-select: none; }
                 
                 .modal-container {
-                    padding: 18px 22px;
+                    padding: 16px 22px;
                     height: 100%;
                     box-sizing: border-box;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: space-between;
                 }
 
-                .title-row { font-size: 17px; font-weight: 900; color: #0066CC; margin-bottom: 2px; }
-                .ver-row { font-size: 14px; font-weight: 800; color: #10B981; margin-bottom: 8px; }
+                .badge-wrapper {
+                    text-align: center;
+                    margin-bottom: 4px;
+                }
+                .badge {
+                    display: inline-block;
+                    background-color: #18181B;
+                    color: #D8FA63;
+                    font-size: 11px;
+                    font-weight: 800;
+                    padding: 5px 16px;
+                    border-radius: 20px;
+                    letter-spacing: 0.8px;
+                    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+                }
+
+                .title-row { font-size: 18px; font-weight: 900; color: #18181B; margin-bottom: 2px; }
+                .ver-row { font-size: 13.5px; font-weight: 800; color: #10B981; margin-bottom: 6px; }
                 .ver-row span { font-size: 12px; font-weight: 500; color: #64748B; margin-left: 4px; }
                 
-                .sec-title { font-size: 12.5px; font-weight: 800; color: #334155; margin-bottom: 6px; }
+                .sec-title { font-size: 12px; font-weight: 800; color: #334155; margin-bottom: 4px; }
 
-                /* 更新内容滑动卡片外壳 */
                 .log-card-container {
                     position: relative;
                     width: 100%;
-                    height: 105px;
+                    height: 135px;
                     background-color: #F8FAFC;
                     border: 1.5px solid #84CC16;
                     border-radius: 10px;
@@ -277,7 +311,6 @@ class AppUpdater {
                     overflow: hidden;
                 }
 
-                /* 隐藏默认系统滚动条的视口 */
                 .log-scroll-viewport {
                     width: calc(100% + 22px);
                     height: 100%;
@@ -287,8 +320,8 @@ class AppUpdater {
                     padding-left: 10px;
                     padding-top: 8px;
                     padding-bottom: 8px;
-                    font-size: 12.5px;
-                    line-height: 1.55;
+                    font-size: 12px;
+                    line-height: 1.5;
                     color: #334155;
                     font-weight: 600;
                     -ms-overflow-style: none;
@@ -300,7 +333,6 @@ class AppUpdater {
                     height: 0;
                 }
 
-                /* 灰色胶囊滑轨 */
                 .capsule-track {
                     position: absolute;
                     top: 5px;
@@ -313,7 +345,6 @@ class AppUpdater {
                     z-index: 100;
                 }
 
-                /* 青绿色圆角滑块 */
                 .capsule-thumb {
                     position: absolute;
                     top: 0;
@@ -328,20 +359,20 @@ class AppUpdater {
 
                 .tips-text {
                     text-align: center;
-                    font-size: 11.5px;
+                    font-size: 11px;
                     font-weight: 600;
                     color: #64748B;
-                    margin-top: 10px;
-                    margin-bottom: 8px;
+                    margin-top: 4px;
+                    margin-bottom: 4px;
                 }
 
                 .btn-download {
                     width: 100%;
-                    height: 38px;
+                    height: 42px;
                     background-color: #D4F658;
                     color: #1A2E05;
                     border: 1px solid #C4EC44;
-                    border-radius: 9px;
+                    border-radius: 10px;
                     font-size: 13.5px;
                     font-weight: 800;
                     cursor: pointer;
@@ -349,18 +380,37 @@ class AppUpdater {
                     align-items: center;
                     justify-content: center;
                     transition: all 0.2s ease;
+                    margin-bottom: 4px;
                 }
                 .btn-download:hover {
                     background-color: #C8EA2D;
                     box-shadow: 0 3px 10px rgba(212, 246, 88, 0.45);
                 }
+
+                @keyframes shakeAnim {
+                    0% { transform: translateX(0); }
+                    20% { transform: translateX(-6px); }
+                    40% { transform: translateX(6px); }
+                    60% { transform: translateX(-4px); }
+                    80% { transform: translateX(4px); }
+                    100% { transform: translateX(0); }
+                }
+                .shake {
+                    animation: shakeAnim 0.4s ease-in-out;
+                    background-color: #FACC15 !important;
+                }
             </style>
         </head>
         <body>
             <div class="modal-container">
-                <div class="title-row">🚀 发现新版本</div>
-                <div class="ver-row">v{{LATEST_VER}} <span>(当前版本: v{{CURRENT_VER}})</span></div>
-                <div class="sec-title">📋 更新内容:</div>
+                <div class="badge-wrapper">
+                    <div class="badge">⚡ LIVE INTELLIGENT UPDATER</div>
+                </div>
+                <div>
+                    <div class="title-row">发现新版本可用</div>
+                    <div class="ver-row">v{{LATEST_VER}} <span>(当前版本: v{{CURRENT_VER}})</span></div>
+                    <div class="sec-title">📦 更新日志与功能变更:</div>
+                </div>
                 
                 <div class="log-card-container">
                     <div class="capsule-track"><div class="capsule-thumb" id="logThumb"></div></div>
@@ -370,7 +420,7 @@ class AppUpdater {
                 </div>
 
                 <div class="tips-text" id="tipsText">发现新功能特性，建议立即更新体验</div>
-                <button class="btn-download" id="btnUpdate" onclick="triggerDownload()">🚀 立即下载并更新</button>
+                <button class="btn-download" id="btnUpdate" onclick="triggerDownload()">🚀 立即下载并应用更新</button>
             </div>
 
             <script>
@@ -390,6 +440,15 @@ class AppUpdater {
                     if (maxTravel < 10) maxTravel = 10;
                     var progress = vp.scrollTop / scrollHeight;
                     thumb.style.top = (progress * maxTravel) + "px";
+                }
+
+                function shakeButton() {
+                    var btn = document.getElementById("btnUpdate");
+                    if (btn) {
+                        btn.classList.remove("shake");
+                        void btn.offsetWidth;
+                        btn.classList.add("shake");
+                    }
                 }
 
                 function triggerDownload() {
