@@ -143,7 +143,17 @@ class SettingsUI {
         mdl := cfg.Has("model") ? cfg["model"] : "meta/llama-3.1-8b-instruct"
         key := cfg.Has("api_key") ? cfg["api_key"] : ""
 
-        return "
+        optSLangAuto := (sLang == "auto") ? "selected" : ""
+        optSLangZh := (sLang == "zh") ? "selected" : ""
+        optSLangEn := (sLang == "en") ? "selected" : ""
+
+        optTLangEn := (tLang == "en") ? "selected" : ""
+        optTLangZh := (tLang == "zh") ? "selected" : ""
+        optTLangPl := (tLang == "pl") ? "selected" : ""
+        optTLangJa := (tLang == "ja") ? "selected" : ""
+        optTLangKo := (tLang == "ko") ? "selected" : ""
+
+        htmlTemplate := "
         (
         <!DOCTYPE html>
         <html>
@@ -193,19 +203,19 @@ class SettingsUI {
                 <div class='field-row'>
                     <span class='field-label'>源语言</span>
                     <select id='sourceLang'>
-                        <option value='auto' " . (sLang == "auto" ? "selected" : "") . ">自动识别 (中英双向智能互译)</option>
-                        <option value='zh' " . (sLang == "zh" ? "selected" : "") . ">Chinese (中文)</option>
-                        <option value='en' " . (sLang == "en" ? "selected" : "") . ">English (英语)</option>
+                        <option value='auto' {{OPT_S_AUTO}}>自动识别 (中英双向智能互译)</option>
+                        <option value='zh' {{OPT_S_ZH}}>Chinese (中文)</option>
+                        <option value='en' {{OPT_S_EN}}>English (英语)</option>
                     </select>
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>目标语言</span>
                     <select id='targetLang'>
-                        <option value='en' " . (tLang == "en" ? "selected" : "") . ">English (英语)</option>
-                        <option value='zh' " . (tLang == "zh" ? "selected" : "") . ">Chinese (中文)</option>
-                        <option value='pl' " . (tLang == "pl" ? "selected" : "") . ">Polish (波兰语)</option>
-                        <option value='ja' " . (tLang == "ja" ? "selected" : "") . ">Japanese (日语)</option>
-                        <option value='ko' " . (tLang == "ko" ? "selected" : "") . ">Korean (韩语)</option>
+                        <option value='en' {{OPT_T_EN}}>English (英语)</option>
+                        <option value='zh' {{OPT_T_ZH}}>Chinese (中文)</option>
+                        <option value='pl' {{OPT_T_PL}}>Polish (波兰语)</option>
+                        <option value='ja' {{OPT_T_JA}}>Japanese (日语)</option>
+                        <option value='ko' {{OPT_T_KO}}>Korean (韩语)</option>
                     </select>
                 </div>
             </div>
@@ -221,15 +231,15 @@ class SettingsUI {
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>Base URL</span>
-                    <input type='text' id='baseUrl' value='" . bUrl . "'>
+                    <input type='text' id='baseUrl' value='{{BASE_URL}}'>
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>Model Name</span>
-                    <input type='text' id='model' value='" . mdl . "'>
+                    <input type='text' id='model' value='{{MODEL_NAME}}'>
                 </div>
                 <div class='field-row'>
                     <span class='field-label'>API Key</span>
-                    <input type='password' id='apiKey' value='" . key . "'>
+                    <input type='password' id='apiKey' value='{{API_KEY}}'>
                 </div>
             </div>
 
@@ -244,7 +254,7 @@ class SettingsUI {
             </div>
 
             <div class='ver-bottom'>
-                <div class='ver-badge'>当前版本: v" . ver . "</div>
+                <div class='ver-badge'>当前版本: v{{VER}}</div>
             </div>
 
             <script>
@@ -268,6 +278,20 @@ class SettingsUI {
         </body>
         </html>
         )"
+
+        html := StrReplace(htmlTemplate, "{{BASE_URL}}", bUrl)
+        html := StrReplace(html, "{{MODEL_NAME}}", mdl)
+        html := StrReplace(html, "{{API_KEY}}", key)
+        html := StrReplace(html, "{{VER}}", ver)
+        html := StrReplace(html, "{{OPT_S_AUTO}}", optSLangAuto)
+        html := StrReplace(html, "{{OPT_S_ZH}}", optSLangZh)
+        html := StrReplace(html, "{{OPT_S_EN}}", optSLangEn)
+        html := StrReplace(html, "{{OPT_T_EN}}", optTLangEn)
+        html := StrReplace(html, "{{OPT_T_ZH}}", optTLangZh)
+        html := StrReplace(html, "{{OPT_T_PL}}", optTLangPl)
+        html := StrReplace(html, "{{OPT_T_JA}}", optTLangJa)
+        html := StrReplace(html, "{{OPT_T_KO}}", optTLangKo)
+        return html
     }
 
     ; JSON 解析转 Map

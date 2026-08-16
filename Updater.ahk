@@ -64,17 +64,16 @@ class AppUpdater {
         return ""
     }
 
-    ; 使用系统原生 API 下载纯净文件 (AHK v2 兼容)
+    ; 使用系统原生 API 下载纯净文件 (兼容 AHK v2 严苛模式)
     static DownloadFileNative(url, destPath) {
         reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
         try {
             res := DllCall("urlmon\URLDownloadToFileW", "Ptr", 0, "Str", reqUrl, "Str", destPath, "UInt", 0, "Ptr", 0, "Int")
             if (res == 0 && FileExist(destPath) && FileGetSize(destPath) > 50) {
-                ; 校验下载内容是否有效（防止下到 404 HTML 报错页）
                 try {
-                    f := FileOpen(destPath, "r", "UTF-8")
-                    firstLine := Trim(f.ReadLine())
-                    f.Close()
+                    fileObj := FileOpen(destPath, "r", "UTF-8")
+                    firstLine := Trim(fileObj.ReadLine())
+                    fileObj.Close()
                     if (InStr(firstLine, "<!DOCTYPE") || InStr(firstLine, "<html") || InStr(firstLine, "404:")) {
                         FileDelete(destPath)
                         return false
