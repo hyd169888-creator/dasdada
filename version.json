@@ -1,8 +1,9 @@
 {
   "version": "2.0.4",
-  "changelog": "1. 🇵🇱 修复语言列表动态挂载机制，正式上线「波兰语 (Polski)」选项。\n2. ⚡ 优化前端模态窗口渲染响应。",
+  "changelog": "1. ⚡ 修复悬浮翻译框调用报错问题。\n2. 🖥️ 优化软件启动逻辑，启动时直接呼出设置中心。",
   "files": [
     "AI_Translate.ahk",
+    "Main.ahk",
     "Settings_UI.ahk"
   ]
 }
