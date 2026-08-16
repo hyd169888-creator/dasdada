@@ -1,503 +1,426 @@
 #Requires AutoHotkey v2.0
 
-class AppUpdater {
-    ; GitHub 仓库地址配置
-    static rawBaseUrl := "https://ghproxy.net/https://raw.githubusercontent.com/hyd169888-creator/dasdada/main"
-    static directRawUrl := "https://raw.githubusercontent.com/hyd169888-creator/dasdada/main"
-    static versionFile := A_ScriptDir . "\version.txt"
-    static gui := 0
-    static wb := 0
-    static doc := 0
-    static mainHwnd := 0
-    static isUpdating := false
-    static isHooked := false
+; ==============================================================================
+; 注册底层窗口消息拦截：禁止移动/拖拽更新窗口，强制固定居中
+; ==============================================================================
+OnMessage(0x00A1, WM_NCLBUTTONDOWN_LOCK, 2)
+OnMessage(0x0112, WM_SYSCOMMAND_LOCK, 2)
 
-    ; 获取本地版本号
-    static GetLocalVersion() {
+WM_NCLBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
+    ; 拦截鼠标点击标题栏 (HTCAPTION = 2) 引起的窗口拖拽
+    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && wParam == 2)
+        return 0
+}
+
+WM_SYSCOMMAND_LOCK(wParam, lParam, msg, hwnd) {
+    ; 拦截系统移动指令 (SC_MOVE = 0xF010)
+    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd && (wParam & 0xFFF0) == 0xF010)
+        return 0
+}
+
+class AppUpdater {
+    ; 默认初始版本（未产生本地版本记录时的兜底版本）
+    static defaultVersion := "1.0.0"
+    static versionFile    := A_ScriptDir . "\version.txt"
+    static gui            := 0
+    
+    ; GitHub 仓库配置
+    static githubUser := "hyd169888-creator"
+    static githubRepo := "dasdada"
+    static branch     := "main"
+    
+    ; 国内加速镜像前缀
+    static rawUrlBase := "https://ghproxy.net/https://raw.githubusercontent.com/"
+
+    ; 读取当前实际生效的版本号
+    static GetCurrentVersion() {
         if FileExist(this.versionFile) {
             try {
-                v := Trim(FileRead(this.versionFile, "UTF-8"))
-                if (v != "")
-                    return v
+                ver := Trim(FileRead(this.versionFile, "UTF-8"))
+                if (ver != "")
+                    return ver
             }
         }
-        return "1.0.0"
+        return this.defaultVersion
     }
 
-    ; 版本号比对算法 (v1 > v2 返回 1, v1 < v2 返回 -1, 相等返回 0)
-    static CompareVersions(v1, v2) {
-        v1 := RegExReplace(v1, "^[vV]", "")
-        v2 := RegExReplace(v2, "^[vV]", "")
+    ; 将新版本号持久化保存到本地
+    static SaveCurrentVersion(newVer) {
+        try {
+            f := FileOpen(this.versionFile, "w", "UTF-8")
+            f.Write(Trim(newVer))
+            f.Close()
+        }
+    }
+
+    ; 检查更新入口
+    static Check(silent := false) {
+        url := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/version.json"
+        curVer := this.GetCurrentVersion()
         
-        parts1 := StrSplit(v1, ".")
-        parts2 := StrSplit(v2, ".")
+        try {
+            http := ComObject("WinHttp.WinHttpRequest.5.1")
+            http.Open("GET", url, true)
+            http.SetTimeouts(2000, 2000, 3000, 3000)
+            http.Send()
+            http.WaitForResponse(3)
+            
+            if (http.Status != 200) {
+                if (!silent)
+                    this.ShowAlert("无法连接至更新服务器 (HTTP " . http.Status . ")", "更新提示", "warning")
+                return
+            }
+
+            respText := http.ResponseText
+            remoteInfo := this.ParseJson(respText)
+            
+            if (!remoteInfo.Has("version")) {
+                if (!silent)
+                    this.ShowAlert("远程版本信息解析异常。", "更新提示", "warning")
+                return
+            }
+
+            latestVer := remoteInfo["version"]
+            changelog := remoteInfo.Has("changelog") ? remoteInfo["changelog"] : "常规性能优化与体验提升。"
+            filesToUpdate := remoteInfo.Has("files") ? remoteInfo["files"] : []
+
+            ; 比对版本号
+            if (this.CompareVersion(latestVer, curVer) > 0) {
+                this.ShowUpdateModal(latestVer, curVer, changelog, filesToUpdate)
+            } else {
+                if (!silent)
+                    this.ShowAlert("当前已是最新版本 (v" . curVer . ")，无需更新！", "检查更新", "success")
+            }
+        } catch as err {
+            if (!silent)
+                this.ShowAlert("检查更新网络异常: " . err.Message, "更新异常", "error")
+        }
+    }
+
+    ; 自定义更新弹窗 (无关闭按钮、不可移动、置顶锁死)
+    static ShowUpdateModal(latestVer, currentVer, changelog, files) {
+        if (this.gui != 0) {
+            this.gui.Show("w410 h320 Center")
+            return
+        }
+
+        ; -SysMenu: 彻底移除右上角 X 关闭按钮与系统控制菜单
+        ; +AlwaysOnTop: 始终最前置顶
+        opt := "+AlwaysOnTop -SysMenu -MinimizeBox -MaximizeBox"
+        if (WinExist("AI 智能打字翻译 - 设置中心"))
+            opt .= " +Owner" . WinGetID("AI 智能打字翻译 - 设置中心")
+
+        uGui := Gui(opt, "发现新版本")
+        uGui.MarginX := 0
+        uGui.MarginY := 0
+        uGui.BackColor := "FFFFFF"
         
-        maxLen := Max(parts1.Length, parts2.Length)
+        wbCtrl := uGui.AddActiveX("x0 y0 w410 h320", "Shell.Explorer")
+        wbCtrl.Value.Silent := true
+        wbCtrl.Value.Navigate("about:blank")
+        while wbCtrl.Value.ReadyState != 4
+            Sleep(10)
+
+        html := this.GetModalHTML()
+        html := StrReplace(html, "{{LATEST_VER}}", latestVer)
+        html := StrReplace(html, "{{CURRENT_VER}}", currentVer)
+
+        ; 格式化换行
+        htmlLog := StrReplace(changelog, "`n", "<br>")
+        htmlLog := StrReplace(htmlLog, "\n", "<br>")
+        html := StrReplace(html, "{{CHANGELOG}}", htmlLog)
+
+        doc := wbCtrl.Value.Document
+        doc.open()
+        doc.write(html)
+        doc.close()
+
+        ; 绑定前端下载触发函数
+        doc.parentWindow.ahk_download := () => this.StartDownload(uGui, doc, files, latestVer)
+
+        this.gui := uGui
+        ; 强行关闭窗口将直接退出程序（强制更新）
+        uGui.OnEvent("Close", (*) => ExitApp())
+        uGui.Show("w410 h320 Center")
+    }
+
+    ; 执行热下载与动态版本保存
+    static StartDownload(uGui, doc, files, newVer) {
+        if (files.Length == 0) {
+            try doc.parentWindow.setFailed("⚠️ 更新列表中没有待下载的文件")
+            return
+        }
+
+        successCount := 0
+        for index, fileName in files {
+            try doc.parentWindow.setProgress("正在下载 (" . index . "/" . files.Length . "): " . fileName)
+            fileUrl := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/" . fileName
+            localPath := A_ScriptDir . "\" . fileName
+
+            try {
+                http := ComObject("WinHttp.WinHttpRequest.5.1")
+                http.Open("GET", fileUrl, false)
+                http.Send()
+
+                if (http.Status == 200) {
+                    fileObj := FileOpen(localPath, "w", "UTF-8")
+                    fileObj.Write(http.ResponseText)
+                    fileObj.Close()
+                    successCount++
+                }
+            } catch {
+                continue
+            }
+        }
+
+        if (successCount > 0) {
+            this.SaveCurrentVersion(newVer)
+            try doc.parentWindow.setProgress("✅ 升级至 v" . newVer . " 成功！正在重启...")
+            Sleep(800)
+            uGui.Destroy()
+            this.gui := 0
+            Reload()
+        } else {
+            try doc.parentWindow.setFailed("❌ 下载失败，请检查网络后重试")
+        }
+    }
+
+    ; 提示弹窗
+    static ShowAlert(msg, title := "提示", type := "info") {
+        aGui := Gui("-MinimizeBox -MaximizeBox", title)
+        aGui.BackColor := "FFFFFF"
+        aGui.SetFont("s10", "Microsoft YaHei UI")
+        
+        iconText := (type == "success") ? "✅ " : ((type == "warning") ? "⚠️ " : ((type == "error") ? "❌ " : "ℹ️ "))
+        aGui.SetFont("s10 Bold", "Microsoft YaHei UI")
+        aGui.AddText("x24 y20 w280 Center c1E293B", iconText . msg)
+        
+        btnOk := aGui.AddText("x114 y58 w100 h30 Center 0x200 BackgroundD4F658 c1A2E05 +Border", "确定")
+        btnOk.SetFont("s9 Bold", "Microsoft YaHei UI")
+        btnOk.OnEvent("Click", (*) => aGui.Destroy())
+        
+        aGui.Show("w328 h105 Center")
+    }
+
+    ; 语义化版本比对
+    static CompareVersion(v1, v2) {
+        a1 := StrSplit(v1, "."), a2 := StrSplit(v2, ".")
+        maxLen := Max(a1.Length, a2.Length)
         Loop maxLen {
-            p1 := (A_Index <= parts1.Length && parts1[A_Index] != "") ? Integer(parts1[A_Index]) : 0
-            p2 := (A_Index <= parts2.Length && parts2[A_Index] != "") ? Integer(parts2[A_Index]) : 0
-            if (p1 > p2)
+            n1 := (A_Index <= a1.Length) ? Integer(a1[A_Index]) : 0
+            n2 := (A_Index <= a2.Length) ? Integer(a2[A_Index]) : 0
+            if (n1 > n2)
                 return 1
-            if (p1 < p2)
+            if (n1 < n2)
                 return -1
         }
         return 0
     }
 
-    ; 防缓存 HTTP 请求
-    static FetchText(url) {
-        reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
-        try {
-            http := ComObject("WinHttp.WinHttpRequest.5.1")
-            http.SetTimeouts(5000, 5000, 10000, 10000)
-            http.Open("GET", reqUrl, false)
-            http.SetRequestHeader("Pragma", "no-cache")
-            http.SetRequestHeader("Cache-Control", "no-cache, no-store, must-revalidate")
-            http.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-            http.Send()
-            if (http.Status == 200)
-                return http.ResponseText
-        } catch {
-        }
-        return ""
-    }
-
-    ; 窗口抖动提醒 (点击主窗口或主窗口[X]时触发)
-    static ShakeModal() {
-        if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
-            return
+    ; JSON 解析器
+    static ParseJson(jsonStr) {
+        res := Map()
+        if RegExMatch(jsonStr, 's)\"version\"\s*:\s*\"([^\"]+)\"', &m)
+            res["version"] := m[1]
+        if RegExMatch(jsonStr, 's)\"changelog\"\s*:\s*\"([^\"]+)\"', &m)
+            res["changelog"] := StrReplace(m[1], "\n", "`n")
         
-        try {
-            WinActivate("ahk_id " . this.gui.Hwnd)
-            this.gui.GetPos(&gx, &gy, &gw, &gh)
-            Loop 3 {
-                this.gui.Move(gx - 8, gy)
-                Sleep 25
-                this.gui.Move(gx + 8, gy)
-                Sleep 25
-            }
-            this.gui.Move(gx, gy)
-        }
-    }
-
-    ; 拦截移动/关闭消息：禁止拖动窗口，拦截主窗口关闭并抖动提示
-    static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
-        if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            cmd := wParam & 0xFFF0
-            if (cmd == 0xF010) ; 拦截移动
-                return 0
-            if (cmd == 0xF060) { ; 拦截关闭
-                AppUpdater.ShakeModal()
-                return 0
-            }
-        }
-    }
-
-    static _OnWmNcLButtonDown(wParam, lParam, msg, hwnd) {
-        if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            if (wParam == 2 || wParam == 20) {
-                AppUpdater.ShakeModal()
-                return 0
-            }
-        }
-    }
-
-    ; 优先级握手：等待主界面完全渲染就绪后立即触发检查
-    static StartAutoCheck() {
-        SetTimer(() => this._WaitForMainAndCheck(), -60)
-    }
-
-    static _WaitForMainAndCheck() {
-        Loop 25 {
-            if (hwnd := WinExist("AI 智能打字翻译 - 设置中心")) {
-                if DllCall("IsWindowVisible", "Ptr", hwnd) {
-                    this.mainHwnd := hwnd
-                    break
-                }
-            }
-            Sleep(80)
-        }
-        this._DoCheck(true)
-    }
-
-    ; 手动检查入口
-    static Check(isSilent := false) {
-        SetTimer(() => this._DoCheck(isSilent), -100)
-    }
-
-    static _DoCheck(isSilent) {
-        localVer := this.GetLocalVersion()
-        
-        jsonStr := this.FetchText(this.rawBaseUrl . "/version.json")
-        if (jsonStr == "") {
-            jsonStr := this.FetchText(this.directRawUrl . "/version.json")
-        }
-
-        if (jsonStr == "") {
-            if (!isSilent)
-                MsgBox("无法连接到更新服务器，请检查网络。", "检查更新失败", "Iconx")
-            return
-        }
-
-        remoteVer := RegExMatch(jsonStr, '"version"\s*:\s*"([^"]+)"', &mVer) ? mVer[1] : ""
-        changelog := RegExMatch(jsonStr, 's)"changelog"\s*:\s*"([^"]*)"', &mLog) ? mLog[1] : "系统性能优化与稳定性提升。"
-        
-        fileList := []
-        if RegExMatch(jsonStr, 's)"files"\s*:\s*\[(.*?)\]', &mFiles) {
-            filesBlock := mFiles[1]
+        files := []
+        if RegExMatch(jsonStr, 's)\"files\"\s*:\s*\[(.*?)\]', &mFiles) {
             pos := 1
-            while RegExMatch(filesBlock, '"([^"]+)"', &fMatch, pos) {
-                fileList.Push(fMatch[1])
-                pos := fMatch.Pos + StrLen(fMatch[0])
+            while RegExMatch(mFiles[1], '\"([^\"]+)\"', &mItem, pos) {
+                files.Push(mItem[1])
+                pos := mItem.Pos + mItem.Len
             }
         }
-
-        if (fileList.Length == 0) {
-            fileList := ["AI_Translate.ahk", "Float_Bar.ahk", "Main.ahk", "Settings_UI.ahk", "Updater.ahk"]
-        }
-
-        changelog := StrReplace(changelog, "\n", "`n")
-        changelog := StrReplace(changelog, '\"', '"')
-
-        if (remoteVer != "" && this.CompareVersions(remoteVer, localVer) > 0) {
-            this.ShowUpdateDialog(remoteVer, localVer, changelog, fileList)
-        } else if (!isSilent) {
-            MsgBox("当前已是最新版本 (v" . localVer . ")，无需更新。", "检查更新", "Iconi")
-        }
+        res["files"] := files
+        return res
     }
 
-    ; HTML 字符安全转义
-    static HtmlEscape(str) {
-        str := StrReplace(str, "&", "&amp;")
-        str := StrReplace(str, "<", "&lt;")
-        str := StrReplace(str, ">", "&gt;")
-        str := StrReplace(str, '"', '&quot;')
-        return str
-    }
-
-    ; 构建现代质感更新弹窗
-    static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
-        if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
-            this.ShakeModal()
-            return
-        }
-
-        if (!this.mainHwnd || !WinExist("ahk_id " . this.mainHwnd)) {
-            this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
-        }
-
-        ; 注册全局防拖动与拦截器
-        if (!this.isHooked) {
-            OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
-            OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
-            this.isHooked := true
-        }
-
-        ; 父子属主关系 (+Owner)
-        ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
-        g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
-        g.BackColor := "0xF8FAF5"
-        g.MarginX := 0
-        g.MarginY := 0
-        this.gui := g
-
-        ; 禁用主界面点击交互
-        if (this.mainHwnd) {
-            WinSetEnabled(0, "ahk_id " . this.mainHwnd)
-        }
-
-        ; 嵌入 Web 渲染容器
-        wbCtl := g.Add("ActiveX", "w390 h430", "Shell.Explorer")
-        this.wb := wbCtl.Value
-        this.wb.silent := true
-        this.wb.Navigate("about:blank")
-        while (this.wb.ReadyState != 4)
-            Sleep(10)
-
-        ; 监听前端点击
-        ComObjConnect(this.wb, {
-            TitleChange: (text, *) => (
-                (text == "DO_UPDATE") ? SetTimer(() => this.PerformUpdate(remoteVer, fileList), -10) : 0
-            )
-        })
-
-        safeLog := this.HtmlEscape(changelog)
-
-        ; HTML 模板（已将 .badge-container 与 .badge-wrap 设置为居中居中）
-        htmlTemplate := "
+    ; =========================================================================
+    ; 弹窗 HTML 模板 (青柠绿圆角胶囊滑动条)
+    ; =========================================================================
+    static GetModalHTML() {
+        return '
         (
         <!DOCTYPE html>
         <html>
         <head>
-        <meta http-equiv="X-UA-Compatible" content="IE=edge">
-        <meta charset="utf-8">
-        <style>
-            * {
-                box-sizing: border-box;
-                margin: 0;
-                padding: 0;
-                user-select: none;
-                -webkit-user-select: none;
-            }
-            body {
-                background-color: #F8FAF5;
-                font-family: -apple-system, "Microsoft YaHei UI", "Segoe UI", sans-serif;
-                padding: 20px 22px;
-                overflow: hidden;
-                color: #18181B;
-            }
-            /* 居中徽章容器 */
-            .badge-container {
-                display: flex;
-                justify-content: center;
-                width: 100%;
-                margin-bottom: 2px;
-            }
-            .badge-wrap {
-                display: inline-flex;
-                align-items: center;
-                justify-content: center;
-                background: #18181B;
-                color: #D8FA63;
-                padding: 4px 12px;
-                border-radius: 20px;
-                font-size: 11px;
-                font-weight: 700;
-                letter-spacing: 0.5px;
-            }
-            .title {
-                font-size: 19px;
-                font-weight: 800;
-                color: #0F172A;
-                margin-top: 8px;
-            }
-            .version-bar {
-                margin-top: 4px;
-                font-size: 13px;
-            }
-            .ver-tag {
-                color: #15803D;
-                font-weight: 800;
-                font-size: 14px;
-                margin-right: 6px;
-            }
-            .ver-old {
-                color: #64748B;
-                font-size: 12px;
-            }
-            .section-label {
-                font-size: 12px;
-                font-weight: 700;
-                color: #334155;
-                margin-top: 12px;
-                margin-bottom: 6px;
-            }
-            /* 内部右侧青绿细滚动条 */
-            .log-box {
-                background: #FFFFFF;
-                border: 1.5px solid #E2E8F0;
-                border-radius: 10px;
-                padding: 10px 12px;
-                height: 110px;
-                overflow-y: auto;
-                font-size: 12px;
-                line-height: 1.6;
-                color: #334155;
-                white-space: pre-wrap;
-                word-break: break-all;
-                scrollbar-face-color: #84cc16;
-                scrollbar-track-color: #F8FAF5;
-                scrollbar-width: thin;
-                scrollbar-color: #84cc16 #F8FAF5;
-            }
-            .log-box::-webkit-scrollbar {
-                width: 5px;
-            }
-            .log-box::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            .log-box::-webkit-scrollbar-thumb {
-                background: #84cc16;
-                border-radius: 4px;
-            }
-            .notice-text {
-                font-size: 11px;
-                color: #94A3B8;
-                text-align: center;
-                margin-top: 12px;
-            }
-            /* 荧光绿主操作按钮 (与主程序[保存并生效]同款) */
-            .btn-update {
-                width: 100%;
-                height: 42px;
-                margin-top: 10px;
-                background-color: #D8FA63;
-                color: #18181B;
-                border: 1px solid #C4E840;
-                border-radius: 10px;
-                font-size: 13px;
-                font-weight: 800;
-                cursor: pointer;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                box-shadow: 0 4px 12px rgba(216, 250, 99, 0.35);
-                outline: none;
-            }
-            .btn-update:hover {
-                background-color: #CBF048;
-            }
-            .status-box {
-                display: none;
-                text-align: center;
-                margin-top: 12px;
-                font-size: 12px;
-                font-weight: 700;
-                color: #0F80E6;
-            }
-        </style>
+            <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+            <meta charset="utf-8" />
+            <style>
+                * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+                html, body { width: 100%; height: 100%; overflow: hidden; background-color: #FFFFFF; color: #18181B; user-select: none; }
+                
+                .modal-container {
+                    padding: 18px 22px;
+                    height: 100%;
+                    box-sizing: border-box;
+                }
+
+                .title-row { font-size: 17px; font-weight: 900; color: #0066CC; margin-bottom: 2px; }
+                .ver-row { font-size: 14px; font-weight: 800; color: #10B981; margin-bottom: 8px; }
+                .ver-row span { font-size: 12px; font-weight: 500; color: #64748B; margin-left: 4px; }
+                
+                .sec-title { font-size: 12.5px; font-weight: 800; color: #334155; margin-bottom: 6px; }
+
+                /* 更新内容滑动卡片外壳 */
+                .log-card-container {
+                    position: relative;
+                    width: 100%;
+                    height: 105px;
+                    background-color: #F8FAFC;
+                    border: 1.5px solid #84CC16;
+                    border-radius: 10px;
+                    padding: 2px;
+                    box-sizing: border-box;
+                    overflow: hidden;
+                }
+
+                /* 隐藏默认系统滚动条的视口 */
+                .log-scroll-viewport {
+                    width: calc(100% + 22px);
+                    height: 100%;
+                    overflow-y: scroll;
+                    overflow-x: hidden;
+                    padding-right: 28px;
+                    padding-left: 10px;
+                    padding-top: 8px;
+                    padding-bottom: 8px;
+                    font-size: 12.5px;
+                    line-height: 1.55;
+                    color: #334155;
+                    font-weight: 600;
+                    -ms-overflow-style: none;
+                    box-sizing: border-box;
+                }
+                .log-scroll-viewport::-webkit-scrollbar {
+                    display: none;
+                    width: 0;
+                    height: 0;
+                }
+
+                /* 灰色胶囊滑轨 */
+                .capsule-track {
+                    position: absolute;
+                    top: 5px;
+                    bottom: 5px;
+                    right: 6px;
+                    width: 8px;
+                    background-color: #D9DCD2;
+                    border-radius: 8px;
+                    pointer-events: none;
+                    z-index: 100;
+                }
+
+                /* 青绿色圆角滑块 */
+                .capsule-thumb {
+                    position: absolute;
+                    top: 0;
+                    left: 1px;
+                    width: 6px;
+                    height: 32px;
+                    background-color: #84CC16;
+                    border-radius: 6px;
+                    transition: top 0.05s ease-out;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+                }
+
+                .tips-text {
+                    text-align: center;
+                    font-size: 11.5px;
+                    font-weight: 600;
+                    color: #64748B;
+                    margin-top: 10px;
+                    margin-bottom: 8px;
+                }
+
+                .btn-download {
+                    width: 100%;
+                    height: 38px;
+                    background-color: #D4F658;
+                    color: #1A2E05;
+                    border: 1px solid #C4EC44;
+                    border-radius: 9px;
+                    font-size: 13.5px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: all 0.2s ease;
+                }
+                .btn-download:hover {
+                    background-color: #C8EA2D;
+                    box-shadow: 0 3px 10px rgba(212, 246, 88, 0.45);
+                }
+            </style>
         </head>
         <body>
-            <div class="badge-container">
-                <div class="badge-wrap">⚡ LIVE INTELLIGENT UPDATER</div>
+            <div class="modal-container">
+                <div class="title-row">🚀 发现新版本</div>
+                <div class="ver-row">v{{LATEST_VER}} <span>(当前版本: v{{CURRENT_VER}})</span></div>
+                <div class="sec-title">📋 更新内容:</div>
+                
+                <div class="log-card-container">
+                    <div class="capsule-track"><div class="capsule-thumb" id="logThumb"></div></div>
+                    <div class="log-scroll-viewport" id="logViewport" onscroll="updateLogScroll()">
+                        {{CHANGELOG}}
+                    </div>
+                </div>
+
+                <div class="tips-text" id="tipsText">发现新功能特性，建议立即更新体验</div>
+                <button class="btn-download" id="btnUpdate" onclick="triggerDownload()">🚀 立即下载并更新</button>
             </div>
-            <div class="title">发现新版本可用</div>
-            <div class="version-bar">
-                <span class="ver-tag">v{{REMOTE_VER}}</span>
-                <span class="ver-old">(当前版本: v{{LOCAL_VER}})</span>
-            </div>
-            
-            <div class="section-label">📦 更新日志与功能变更：</div>
-            <div class="log-box">{{SAFE_LOG}}</div>
-            
-            <div class="notice-text">⚠️ 此版本包含重要功能重构，必须完成更新后方可使用</div>
-            
-            <button id="btnUpdate" class="btn-update" onclick="document.title = 'DO_UPDATE'">
-                🚀 立即下载并应用更新
-            </button>
-            
-            <div id="statusBox" class="status-box">正在连接更新通道...</div>
-        </body>
-        </html>
-        )"
 
-        html := StrReplace(htmlTemplate, "{{REMOTE_VER}}", remoteVer)
-        html := StrReplace(html, "{{LOCAL_VER}}", localVer)
-        html := StrReplace(html, "{{SAFE_LOG}}", safeLog)
+            <script>
+                function updateLogScroll() {
+                    var vp = document.getElementById("logViewport");
+                    var thumb = document.getElementById("logThumb");
+                    if (!vp || !thumb) return;
 
-        this.doc := this.wb.Document
-        this.doc.open()
-        this.doc.write(html)
-        this.doc.close()
+                    var scrollHeight = vp.scrollHeight - vp.clientHeight;
+                    if (scrollHeight <= 0) {
+                        thumb.style.display = "none";
+                        return;
+                    }
+                    thumb.style.display = "block";
 
-        ; 居中显示于主程序上方
-        if (this.mainHwnd) {
-            WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
-            dx := mx + (mw - 390) // 2
-            dy := my + (mh - 430) // 2
-            g.Show("x" . dx . " y" . dy . " w390 h430")
-        } else {
-            g.Show("w390 h430 Center")
-        }
-        
-        WinActivate("ahk_id " . g.Hwnd)
-    }
-
-    ; 设置 Web 端状态提示
-    static SetWebStatus(msg, isError := false) {
-        try {
-            bBtn := this.doc.getElementById("btnUpdate")
-            sBox := this.doc.getElementById("statusBox")
-            
-            if (isError) {
-                bBtn.style.display := "flex"
-                sBox.style.display := "block"
-                sBox.style.color := "#DC2626"
-                sBox.innerText := msg
-            } else {
-                bBtn.style.display := "none"
-                sBox.style.display := "block"
-                sBox.style.color := "#0F80E6"
-                sBox.innerText := msg
-            }
-        }
-    }
-
-    ; 执行更新与组件覆写
-    static PerformUpdate(remoteVer, fileList) {
-        if (this.isUpdating)
-            return
-        this.isUpdating := true
-
-        this.SetWebStatus("正在下载核心组件 (0/" . fileList.Length . ")...")
-
-        successCount := 0
-        tempDir := A_ScriptDir . "\~temp_update"
-        if !DirExist(tempDir)
-            DirCreate(tempDir)
-
-        for idx, fileName in fileList {
-            this.SetWebStatus("正在同步核心文件 (" . idx . "/" . fileList.Length . "): " . fileName)
-            
-            fileUrl := this.rawBaseUrl . "/" . fileName
-            fileContent := this.FetchText(fileUrl)
-            
-            if (fileContent == "") {
-                fileUrl := this.directRawUrl . "/" . fileName
-                fileContent := this.FetchText(fileUrl)
-            }
-
-            if (fileContent != "") {
-                tempPath := tempDir . "\" . fileName
-                try {
-                    if FileExist(tempPath)
-                        FileDelete(tempPath)
-                    FileAppend(fileContent, tempPath, "UTF-8")
-                    successCount++
+                    var maxTravel = (vp.clientHeight - 10) - 32;
+                    if (maxTravel < 10) maxTravel = 10;
+                    var progress = vp.scrollTop / scrollHeight;
+                    thumb.style.top = (progress * maxTravel) + "px";
                 }
-            }
-        }
 
-        if (successCount >= fileList.Length) {
-            ; 替换实际脚本
-            for fileName in fileList {
-                src := tempDir . "\" . fileName
-                dst := A_ScriptDir . "\" . fileName
-                if FileExist(src) {
-                    try {
-                        if FileExist(dst)
-                            FileDelete(dst)
-                        FileMove(src, dst, 1)
+                function triggerDownload() {
+                    var btn = document.getElementById("btnUpdate");
+                    btn.style.display = "none";
+                    var tip = document.getElementById("tipsText");
+                    tip.innerText = "正在准备下载更新组件...";
+                    window.ahk_download();
+                }
+
+                function setProgress(msg) {
+                    var tip = document.getElementById("tipsText");
+                    if (tip) tip.innerText = msg;
+                }
+
+                function setFailed(msg) {
+                    var tip = document.getElementById("tipsText");
+                    if (tip) tip.innerText = msg;
+                    var btn = document.getElementById("btnUpdate");
+                    if (btn) {
+                        btn.style.display = "block";
+                        btn.innerText = "重试更新";
                     }
                 }
-            }
 
-            ; 写入新版本号
-            try {
-                if FileExist(this.versionFile)
-                    FileDelete(this.versionFile)
-                FileAppend(remoteVer, this.versionFile, "UTF-8")
-            }
-
-            try DirDelete(tempDir, 1)
-
-            this.SetWebStatus("✅ 更新完成！正在为您重新加载程序...")
-            Sleep(800)
-
-            ; 恢复主窗口
-            if (this.mainHwnd && WinExist("ahk_id " . this.mainHwnd))
-                WinSetEnabled(1, "ahk_id " . this.mainHwnd)
-
-            ; 重启程序
-            if A_IsCompiled {
-                Run('"' . A_ScriptFullPath . '"')
-            } else {
-                Run('"' . A_AhkPath . '" "' . (FileExist(A_ScriptDir . "\Main.ahk") ? A_ScriptDir . "\Main.ahk" : A_ScriptFullPath) . '"')
-            }
-            ExitApp()
-        } else {
-            this.isUpdating := false
-            this.SetWebStatus("❌ 部分组件下载失败，请检查网络后重试", true)
-        }
+                window.onload = function() {
+                    setTimeout(updateLogScroll, 30);
+                };
+            </script>
+        </body>
+        </html>
+        )'
     }
 }
