@@ -1,282 +1,94 @@
 ﻿#Requires AutoHotkey v2.0
-#Include Settings_UI.ahk
-#Include AI_Translate.ahk
-
-; ==============================================================================
-; 注册鼠标拖拽：按住悬浮窗任意非输入区均可自由移动位置
-; ==============================================================================
-OnMessage(0x0201, WM_LBUTTONDOWN_DRAG)
-
-WM_LBUTTONDOWN_DRAG(wParam, lParam, msg, hwnd) {
-    if (FloatBar.gui && (hwnd == FloatBar.gui.Hwnd || DllCall("GetParent", "ptr", hwnd) == FloatBar.gui.Hwnd)) {
-        if (FloatBar.editInput && hwnd != FloatBar.editInput.Hwnd) {
-            PostMessage(0xA1, 2, 0, FloatBar.gui.Hwnd) ; WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 2
-        }
-    }
-}
 
 class FloatBar {
     static gui := 0
-    static editInput := 0
-    static textResult := 0
-    static currentModelTag := 0
-    static isTranslating := false
-    static debounceTimer := 0
-    static hotkeysRegistered := false
-    static lastActiveHwnd := 0
-    
-    ; 全量支持轮换的 6 大模型列表
-    static providerList := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao", "Custom"]
-    static currentProvider := "DeepSeek"
+    static editCtrl := 0
+    static statusCtrl := 0
+    static isVisible := false
 
-    ; 与设置中心完全统一的模型全称映射表
-    static providerTitles := Map(
-        "DeepSeek", "DeepSeek（官方直连·深度思考）",
-        "Gemini", "Gemini（需魔法）",
-        "OpenAI", "ChatGPT（需魔法）",
-        "NVIDIA", "NVIDIA·免费满血模型（需魔法）",
-        "Doubao", "豆包(ByteDance)",
-        "Custom", "自定义API(OpenAI 协议兼容）"
-    )
-
-    static GetProviderTitle(key) {
-        return this.providerTitles.Has(key) ? this.providerTitles[key] : key
-    }
-
-    static Create() {
-        if (this.gui != 0)
-            return
-
-        ; 创建温暖米色置顶悬浮翻译条
-        bar := Gui("+AlwaysOnTop -Caption +ToolWindow +Border", "AI 实时翻译")
-        bar.BackColor := "F4EEDC"
-        bar.MarginX := 12
-        bar.MarginY := 10
-        bar.SetFont("s10.5", "Segoe UI, Microsoft YaHei")
-
-        ; 顶部当前引擎标识
-        this.currentModelTag := bar.AddText("x12 y10 w456 h20 c65A30D", "● 当前引擎: " . this.GetProviderTitle(this.currentProvider))
-        this.currentModelTag.SetFont("s9.5 bold")
-
-        ; 白底背景框 + 垂直居中输入框
-        bar.AddText("x12 y32 w456 h36 BackgroundFFFFFF", "")
-        this.editInput := bar.AddEdit("x18 y40 w444 h22 -E0x200 -VScroll -HScroll BackgroundFFFFFF c18181B", "")
-        this.editInput.SetFont("s11", "Segoe UI, Microsoft YaHei")
-        this.editInput.OnEvent("Change", (ctrl, *) => this.OnInputChange(ctrl.Value))
-
-        ; 翻译结果展示区
-        this.textResult := bar.AddText("x12 y78 w456 h46 c3F3F46", "等待输入...")
-        this.textResult.SetFont("s11", "Segoe UI, Microsoft YaHei")
-
-        ; 底部快捷键提示
-        hint := bar.AddText("x12 y130 w456 h18 c84CC16", "[Enter] 输出翻译  |  [Ctrl+Enter] 输出原文  |  [Tab] 切换模型  |  [Esc] 关闭")
-        hint.SetFont("s8.5")
-
-        ; 按 Esc 键隐藏窗口
-        bar.OnEvent("Escape", (*) => this.Hide())
-        this.gui := bar
-
-        ; 注册悬浮窗口专属快捷键
-        if (!this.hotkeysRegistered) {
-            HotIf((*) => (this.gui != 0 && WinActive("ahk_id " . this.gui.Hwnd)))
-            Hotkey("Enter", (*) => this.ConfirmOutput(true), "On")
-            Hotkey("^Enter", (*) => this.ConfirmOutput(false), "On")
-            Hotkey("Tab", (*) => this.SwitchNextProvider(), "On")
-            HotIf()
-            this.hotkeysRegistered := true
-        }
-    }
-
-    static Toggle() {
-        this.Create()
-        if (WinActive("ahk_id " . this.gui.Hwnd)) {
-            this.Hide()
-        } else {
-            this.Show()
-        }
-    }
-
-    ; ==========================================================================
-    ; 左下角对齐光标 / 鼠标智能定位算法
-    ; ==========================================================================
-    static CalculateSmartPosition(barW := 480, barH := 155) {
-        targetX := 0
-        targetY := 0
-        hasCaret := false
-        gap := 16 ; 浮窗底部与输入光标之间的垂直安全间隙 (16px)
-
-        ; 1. 读取当前输入焦点光标 (Caret)
-        try {
-            activeHwnd := WinActive("A")
-            if (activeHwnd) {
-                threadId := DllCall("GetWindowThreadProcessId", "ptr", activeHwnd, "ptr", 0, "uint")
-                guiInfo := Buffer(A_PtrSize == 8 ? 72 : 48, 0)
-                NumPut("uint", guiInfo.Size, guiInfo, 0)
-
-                if DllCall("GetGUIThreadInfo", "uint", threadId, "ptr", guiInfo.Ptr) {
-                    caretHwnd := NumGet(guiInfo, A_PtrSize == 8 ? 48 : 28, "ptr")
-                    left   := NumGet(guiInfo, A_PtrSize == 8 ? 56 : 32, "int")
-                    top    := NumGet(guiInfo, A_PtrSize == 8 ? 60 : 36, "int")
-                    right  := NumGet(guiInfo, A_PtrSize == 8 ? 64 : 40, "int")
-                    bottom := NumGet(guiInfo, A_PtrSize == 8 ? 68 : 44, "int")
-
-                    if (caretHwnd && (right > left || bottom > top)) {
-                        pt := Buffer(8, 0)
-                        NumPut("int", left, pt, 0)
-                        NumPut("int", top, pt, 4)
-                        DllCall("ClientToScreen", "ptr", caretHwnd, "ptr", pt.Ptr)
-                        
-                        screenCaretX := NumGet(pt, 0, "int")
-                        screenCaretY := NumGet(pt, 4, "int")
-
-                        if (screenCaretX > 0 && screenCaretY > 0) {
-                            ; 左下角对齐：左边 X = 光标 X，顶部 Y = 光标 Y - 窗口高度 - 间隙
-                            targetX := screenCaretX
-                            targetY := screenCaretY - barH - gap
-                            hasCaret := true
-                        }
-                    }
-                }
-            }
-        }
-
-        ; 2. 若当前软件未暴露光标，则以鼠标当前位置作为对齐锚点
-        if (!hasCaret) {
-            CoordMode "Mouse", "Screen"
-            MouseGetPos &mX, &mY
-            targetX := mX
-            targetY := mY - barH - gap
-        }
-
-        ; 3. 屏幕边界保护与防溢出
-        screenWidth := A_ScreenWidth
-        screenHeight := A_ScreenHeight
-
-        ; 水平防越界
-        if (targetX + barW > screenWidth - 15) {
-            targetX := screenWidth - barW - 15
-        }
-        if (targetX < 15) {
-            targetX := 15
-        }
-
-        ; 垂直防越界：若顶部放不下，自动翻转至下方
-        if (targetY < 20) {
-            targetY := (hasCaret ? (screenCaretY + 30) : (mY + 25))
-        }
-        if (targetY + barH > screenHeight - 40) {
-            targetY := screenHeight - barH - 40
-        }
-
-        return { x: targetX, y: targetY }
-    }
-
+    ; 显示悬浮翻译框
     static Show() {
-        currActive := WinActive("A")
-        if (this.gui == 0 || currActive != this.gui.Hwnd) {
-            this.lastActiveHwnd := currActive
+        if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
+            this.gui.Show()
+            WinActivate("ahk_id " . this.gui.Hwnd)
+            this.editCtrl.Focus()
+            this.isVisible := true
+            return
         }
 
-        this.Create()
-        
-        cfg := SettingsUI.LoadConfig()
-        if (cfg.Has("current_provider") && cfg["current_provider"] != "") {
-            this.currentProvider := cfg["current_provider"]
-        }
-        
-        this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
-        this.editInput.Value := ""
-        this.textResult.Text := "等待输入..."
+        g := Gui("+AlwaysOnTop -Caption +ToolWindow +Border", "AI 实时打字翻译")
+        g.BackColor := "0x18181B"
+        g.MarginX := 12
+        g.MarginY := 12
+        this.gui := g
 
-        ; 动态计算就近左下角对齐坐标
-        pos := this.CalculateSmartPosition(480, 155)
-        this.gui.Show("x" . pos.x . " y" . pos.y . " w480 h155")
+        ; 输入框
+        g.SetFont("s11 cFFFFFF", "Microsoft YaHei UI")
+        this.editCtrl := g.Add("Edit", "w360 r2 -WantReturn -E0x200 Background18181B cFFFFFF", "")
+        
+        ; 状态提示
+        g.SetFont("s9 c84CC16", "Microsoft YaHei UI")
+        this.statusCtrl := g.Add("Text", "w360 Center", "Enter 翻译并上屏 · Esc 隐藏")
 
-        this.editInput.Focus()
+        ; 按键绑定
+        g.OnEvent("Escape", (*) => this.Hide())
+
+        ; 居中偏上定位
+        posX := (A_ScreenWidth - 384) // 2
+        posY := A_ScreenHeight // 3
+
+        g.Show("x" . posX . " y" . posY . " w384 NoActivate")
+        this.gui.Show()
+        this.editCtrl.Focus()
+        this.isVisible := true
     }
 
+    ; 隐藏悬浮框
     static Hide() {
-        if (this.gui) {
+        if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
             this.gui.Hide()
+            this.isVisible := false
         }
     }
 
-    static OnInputChange(val) {
-        val := Trim(val)
-        if (val == "") {
-            this.textResult.Text := "等待输入..."
+    ; 提交翻译
+    static Submit() {
+        if (!this.editCtrl)
             return
-        }
-
-        if (this.debounceTimer)
-            SetTimer(this.debounceTimer, 0)
-
-        this.debounceTimer := () => this.DoLiveTranslate(val)
-        SetTimer(this.debounceTimer, -350)
-    }
-
-    static DoLiveTranslate(inputText) {
-        if (inputText == "" || this.isTranslating)
+        text := Trim(this.editCtrl.Text)
+        if (text == "")
             return
 
-        this.isTranslating := true
-        this.textResult.Text := "⏳ 正在思考并翻译..."
-
+        this.statusCtrl.Text := "⚡ 正在调用 AI 翻译大脑..."
         cfg := SettingsUI.LoadConfig()
-        pConfig := (cfg.Has("providers") && cfg["providers"].Has(this.currentProvider)) ? cfg["providers"][this.currentProvider] : Map()
-        targetLang := cfg.Has("target_lang") ? cfg["target_lang"] : "en"
-        sourceLang := cfg.Has("source_lang") ? cfg["source_lang"] : "auto"
-
-        res := AITranslator.Request(inputText, pConfig, targetLang, sourceLang)
-        this.isTranslating := false
-
-        if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
-            return
-
-        if (res.success) {
-            this.textResult.Text := res.result
-        } else {
-            this.textResult.Text := "✕ " . res.msg
-        }
+        
+        SetTimer(() => this._DoTranslate(text, cfg), -10)
     }
 
-    static ConfirmOutput(useTranslation := true) {
-        rawText := this.editInput.Value
-        transText := this.textResult.Text
-
-        outText := useTranslation ? (InStr(transText, "✕") == 1 ? rawText : transText) : rawText
-        if (Trim(outText) != "" && outText != "等待输入..." && outText != "⏳ 正在思考并翻译...") {
-            A_Clipboard := outText
-
-            if (this.lastActiveHwnd && WinExist("ahk_id " . this.lastActiveHwnd)) {
-                WinActivate("ahk_id " . this.lastActiveHwnd)
-                Sleep(60)
+    static _DoTranslate(text, cfg) {
+        try {
+            res := AITranslate.Execute(text, cfg)
+            if (res != "") {
+                this.Hide()
+                this.editCtrl.Text := ""
+                this.statusCtrl.Text := "Enter 翻译并上屏 · Esc 隐藏"
+                
+                ; 自动写入剪贴板并粘贴到当前输入焦点
+                A_Clipboard := res
+                Sleep(50)
                 Send("^v")
             } else {
-                Send("^v")
+                this.statusCtrl.Text := "❌ 翻译失败，请检查 API 配置"
             }
-
-            this.editInput.Value := ""
-            this.textResult.Text := "等待输入..."
-        }
-    }
-
-    static SwitchNextProvider() {
-        currIdx := 1
-        for idx, p in this.providerList {
-            if (StrCompare(p, this.currentProvider, false) == 0) {
-                currIdx := idx
-                break
-            }
-        }
-        
-        nextIdx := (currIdx >= this.providerList.Length) ? 1 : currIdx + 1
-        this.currentProvider := this.providerList[nextIdx]
-        
-        this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
-
-        if (Trim(this.editInput.Value) != "") {
-            this.DoLiveTranslate(this.editInput.Value)
+        } catch as e {
+            this.statusCtrl.Text := "❌ 异常: " . e.Message
         }
     }
 }
+
+; 悬浮窗口内按 Enter 触发翻译
+#HotIf WinActive("AI 实时打字翻译")
+Enter:: {
+    FloatBar.Submit()
+}
+#HotIf
