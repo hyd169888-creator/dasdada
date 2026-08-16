@@ -62,7 +62,7 @@ class AppUpdater {
         return ""
     }
 
-    ; 窗口抖动提醒
+    ; 窗口抖动提醒 (点击主窗口或主窗口[X]时触发)
     static ShakeModal() {
         if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
             return
@@ -84,11 +84,9 @@ class AppUpdater {
     static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
             cmd := wParam & 0xFFF0
-            ; 拦截移动 (SC_MOVE = 0xF010)
-            if (cmd == 0xF010)
+            if (cmd == 0xF010) ; 拦截移动
                 return 0
-            ; 拦截主程序关闭指令 (SC_CLOSE = 0xF060)
-            if (cmd == 0xF060) {
+            if (cmd == 0xF060) { ; 拦截关闭
                 AppUpdater.ShakeModal()
                 return 0
             }
@@ -97,7 +95,6 @@ class AppUpdater {
 
     static _OnWmNcLButtonDown(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            ; 点击标题栏 (HTCAPTION = 2) 或右上角关闭 (HTCLOSE = 20)
             if (wParam == 2 || wParam == 20) {
                 AppUpdater.ShakeModal()
                 return 0
@@ -111,7 +108,6 @@ class AppUpdater {
     }
 
     static _WaitForMainAndCheck() {
-        ; 循环确认主界面已完全出现在屏幕上
         Loop 25 {
             if (hwnd := WinExist("AI 智能打字翻译 - 设置中心")) {
                 if DllCall("IsWindowVisible", "Ptr", hwnd) {
@@ -179,26 +175,25 @@ class AppUpdater {
         return str
     }
 
-    ; 展现强制模态更新弹窗
+    ; 构建现代质感更新弹窗
     static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
         if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
             this.ShakeModal()
             return
         }
 
-        ; 再次校验主界面句柄
         if (!this.mainHwnd || !WinExist("ahk_id " . this.mainHwnd)) {
             this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
         }
 
-        ; 注册全局防拖动与消息拦截器
+        ; 注册全局防拖动与拦截器
         if (!this.isHooked) {
             OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
             OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
             this.isHooked := true
         }
 
-        ; 严格建立父子属主关系 (+Owner) 与模态阻断
+        ; 父子属主关系 (+Owner)
         ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
         g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
         g.BackColor := "0xF8FAF5"
@@ -206,7 +201,7 @@ class AppUpdater {
         g.MarginY := 0
         this.gui := g
 
-        ; 禁用主界面所有输入与点击交互
+        ; 禁用主界面点击交互
         if (this.mainHwnd) {
             WinSetEnabled(0, "ahk_id " . this.mainHwnd)
         }
@@ -219,7 +214,7 @@ class AppUpdater {
         while (this.wb.ReadyState != 4)
             Sleep(10)
 
-        ; 监听前端更新指令
+        ; 监听前端点击
         ComObjConnect(this.wb, {
             TitleChange: (text, *) => (
                 (text == "DO_UPDATE") ? SetTimer(() => this.PerformUpdate(remoteVer, fileList), -10) : 0
@@ -228,7 +223,7 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; 统一质感 HTML 模板
+        ; HTML 模板（已将 .badge-container 与 .badge-wrap 设置为居中居中）
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -251,12 +246,20 @@ class AppUpdater {
                 overflow: hidden;
                 color: #18181B;
             }
+            /* 居中徽章容器 */
+            .badge-container {
+                display: flex;
+                justify-content: center;
+                width: 100%;
+                margin-bottom: 2px;
+            }
             .badge-wrap {
                 display: inline-flex;
                 align-items: center;
+                justify-content: center;
                 background: #18181B;
                 color: #D8FA63;
-                padding: 4px 10px;
+                padding: 4px 12px;
                 border-radius: 20px;
                 font-size: 11px;
                 font-weight: 700;
@@ -323,7 +326,7 @@ class AppUpdater {
                 text-align: center;
                 margin-top: 12px;
             }
-            /* 与主程序 [保存并生效] 同款荧光绿按键 */
+            /* 荧光绿主操作按钮 (与主程序[保存并生效]同款) */
             .btn-update {
                 width: 100%;
                 height: 42px;
@@ -355,7 +358,9 @@ class AppUpdater {
         </style>
         </head>
         <body>
-            <div class="badge-wrap">⚡ LIVE INTELLIGENT UPDATER</div>
+            <div class="badge-container">
+                <div class="badge-wrap">⚡ LIVE INTELLIGENT UPDATER</div>
+            </div>
             <div class="title">发现新版本可用</div>
             <div class="version-bar">
                 <span class="ver-tag">v{{REMOTE_VER}}</span>
@@ -385,7 +390,7 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
-        ; 居中锚定在主程序正上方
+        ; 居中显示于主程序上方
         if (this.mainHwnd) {
             WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
             dx := mx + (mw - 390) // 2
