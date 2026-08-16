@@ -10,6 +10,7 @@ class AppUpdater {
     static doc := 0
     static mainHwnd := 0
     static isUpdating := false
+    static isHooked := false
 
     ; 获取本地版本号
     static GetLocalVersion() {
@@ -61,7 +62,7 @@ class AppUpdater {
         return ""
     }
 
-    ; 窗口抖动提醒 (主程序被点击时触发)
+    ; 窗口抖动提醒
     static ShakeModal() {
         if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
             return
@@ -69,13 +70,33 @@ class AppUpdater {
         try {
             WinActivate("ahk_id " . this.gui.Hwnd)
             this.gui.GetPos(&gx, &gy, &gw, &gh)
-            Loop 2 {
-                this.gui.Move(gx - 6, gy)
-                Sleep 20
-                this.gui.Move(gx + 6, gy)
-                Sleep 20
+            Loop 3 {
+                this.gui.Move(gx - 8, gy)
+                Sleep 25
+                this.gui.Move(gx + 8, gy)
+                Sleep 25
             }
             this.gui.Move(gx, gy)
+        }
+    }
+
+    ; 拦截移动消息：禁止主程序与更新弹窗拖动，保留最小化功能
+    static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
+        if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
+            ; 拦截 SC_MOVE (0xF010)，允许 SC_MINIMIZE (0xF020)
+            if ((wParam & 0xFFF0) == 0xF010)
+                return 0
+        }
+    }
+
+    static _OnWmNcLButtonDown(wParam, lParam, msg, hwnd) {
+        if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
+            ; 点击标题栏 (HTCAPTION = 2) 禁止拖动，点击主程序标题栏时触发弹窗抖动
+            if (wParam == 2) {
+                if (hwnd == AppUpdater.mainHwnd)
+                    AppUpdater.ShakeModal()
+                return 0
+            }
         }
     }
 
@@ -125,23 +146,7 @@ class AppUpdater {
         }
     }
 
-    ; 全局绝对置顶巡检守护
-    static _EnforceTopmost() {
-        if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd)) {
-            SetTimer(() => this._EnforceTopmost(), 0)
-            return
-        }
-        
-        ; 锁定最高层级 HWND_TOPMOST (-1)
-        DllCall("SetWindowPos", "Ptr", this.gui.Hwnd, "Ptr", -1, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", 0x0001 | 0x0002 | 0x0040)
-        
-        ; 若主程序尝试激活，立刻将焦点拉回更新弹窗并抖动
-        if (this.mainHwnd && WinActive("ahk_id " . this.mainHwnd)) {
-            this.ShakeModal()
-        }
-    }
-
-    ; HTML 字符转义
+    ; HTML 字符安全转义
     static HtmlEscape(str) {
         str := StrReplace(str, "&", "&amp;")
         str := StrReplace(str, "<", "&lt;")
@@ -157,29 +162,32 @@ class AppUpdater {
             return
         }
 
-        ; 锁定主界面，彻底禁止主界面移动与点击
-        mHwnd := WinExist("AI 智能打字翻译 - 设置中心")
-        if (mHwnd) {
-            this.mainHwnd := mHwnd
-            WinSetEnabled(0, "ahk_id " . mHwnd)
+        this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
+        
+        ; 注册全局防拖动拦截器
+        if (!this.isHooked) {
+            OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
+            OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
+            this.isHooked := true
         }
 
-        ; -Caption 无标题栏彻底杜绝拖拽，+AlwaysOnTop 保证置顶
-        g := Gui("+AlwaysOnTop -Caption +Border +ToolWindow +OwnDialogs", "系统更新")
+        ; 通过 +Owner 建立父子属主关系：确保永远在主程序上方，但允许被其他软件（如浏览器）正常覆盖，且跟随最小化
+        ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
+        g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
         g.BackColor := "0xF8FAF5"
         g.MarginX := 0
         g.MarginY := 0
         this.gui := g
 
         ; 嵌入 Web 渲染容器
-        wbCtl := g.Add("ActiveX", "w410 h450", "Shell.Explorer")
+        wbCtl := g.Add("ActiveX", "w390 h430", "Shell.Explorer")
         this.wb := wbCtl.Value
         this.wb.silent := true
         this.wb.Navigate("about:blank")
         while (this.wb.ReadyState != 4)
             Sleep(10)
 
-        ; 绑定通信：监听网页指令
+        ; 监听前端点击
         ComObjConnect(this.wb, {
             TitleChange: (text, *) => (
                 (text == "DO_UPDATE") ? SetTimer(() => this.PerformUpdate(remoteVer, fileList), -10) : 0
@@ -188,9 +196,8 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; 现代化 HTML/CSS 模板
-        html := '
-        (
+        ; 模板渲染 (精准替换占位符，杜绝字符串拼接乱码)
+        htmlTemplate := '
         <!DOCTYPE html>
         <html>
         <head>
@@ -207,72 +214,68 @@ class AppUpdater {
             body {
                 background-color: #F8FAF5;
                 font-family: -apple-system, "Microsoft YaHei UI", "Segoe UI", sans-serif;
-                padding: 24px;
+                padding: 20px 22px;
                 overflow: hidden;
                 color: #18181B;
             }
             .badge-wrap {
-                display: flex;
+                display: inline-flex;
                 align-items: center;
-                gap: 6px;
                 background: #18181B;
                 color: #D8FA63;
                 padding: 4px 10px;
                 border-radius: 20px;
-                width: fit-content;
                 font-size: 11px;
                 font-weight: 700;
                 letter-spacing: 0.5px;
             }
             .title {
-                font-size: 20px;
+                font-size: 19px;
                 font-weight: 800;
                 color: #0F172A;
-                margin-top: 10px;
+                margin-top: 8px;
             }
             .version-bar {
-                display: flex;
-                align-items: center;
-                gap: 8px;
-                margin-top: 6px;
+                margin-top: 4px;
+                font-size: 13px;
             }
             .ver-tag {
                 color: #15803D;
                 font-weight: 800;
                 font-size: 14px;
+                margin-right: 6px;
             }
             .ver-old {
                 color: #64748B;
                 font-size: 12px;
             }
             .section-label {
-                display: flex;
-                align-items: center;
-                gap: 6px;
                 font-size: 12px;
                 font-weight: 700;
                 color: #334155;
-                margin-top: 14px;
-                margin-bottom: 8px;
+                margin-top: 12px;
+                margin-bottom: 6px;
             }
-            /* 内部右侧青绿滚动条容器 */
+            /* 内部右侧青绿细滚动条 */
             .log-box {
                 background: #FFFFFF;
                 border: 1.5px solid #E2E8F0;
-                border-radius: 12px;
-                padding: 12px 14px;
-                height: 120px;
+                border-radius: 10px;
+                padding: 10px 12px;
+                height: 110px;
                 overflow-y: auto;
-                font-size: 13px;
+                font-size: 12px;
                 line-height: 1.6;
                 color: #334155;
                 white-space: pre-wrap;
                 word-break: break-all;
+                scrollbar-face-color: #84cc16;
+                scrollbar-track-color: #F8FAF5;
                 scrollbar-width: thin;
                 scrollbar-color: #84cc16 #F8FAF5;
             }
             .log-box::-webkit-scrollbar {
-                width: 6px;
+                width: 5px;
             }
             .log-box::-webkit-scrollbar-track {
                 background: transparent;
@@ -281,43 +284,38 @@ class AppUpdater {
                 background: #84cc16;
                 border-radius: 4px;
             }
-            .log-box::-webkit-scrollbar-thumb:hover {
-                background: #65a30d;
-            }
             .notice-text {
                 font-size: 11px;
                 color: #94A3B8;
                 text-align: center;
-                margin-top: 14px;
+                margin-top: 12px;
             }
-            /* 荧光绿主题主按键 (1:1 还原主程序 [保存并生效] 按钮样式) */
+            /* 与主界面 [保存并生效] 一致的荧光绿按钮样式 */
             .btn-update {
                 width: 100%;
-                height: 44px;
+                height: 42px;
                 margin-top: 10px;
                 background-color: #D8FA63;
                 color: #18181B;
                 border: 1px solid #C4E840;
-                border-radius: 12px;
-                font-size: 14px;
+                border-radius: 10px;
+                font-size: 13px;
                 font-weight: 800;
                 cursor: pointer;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                gap: 8px;
                 box-shadow: 0 4px 12px rgba(216, 250, 99, 0.35);
                 outline: none;
             }
             .btn-update:hover {
                 background-color: #CBF048;
-                box-shadow: 0 6px 16px rgba(216, 250, 99, 0.45);
             }
             .status-box {
                 display: none;
                 text-align: center;
-                margin-top: 14px;
-                font-size: 13px;
+                margin-top: 12px;
+                font-size: 12px;
                 font-weight: 700;
                 color: #0F80E6;
             }
@@ -327,12 +325,12 @@ class AppUpdater {
             <div class="badge-wrap">⚡ LIVE INTELLIGENT UPDATER</div>
             <div class="title">发现新版本可用</div>
             <div class="version-bar">
-                <span class="ver-tag">v)' . remoteVer . '</span>
-                <span class="ver-old">(当前版本: v' . localVer . ')</span>
+                <span class="ver-tag">v{{REMOTE_VER}}</span>
+                <span class="ver-old">(当前版本: v{{LOCAL_VER}})</span>
             </div>
             
             <div class="section-label">📦 更新日志与功能变更：</div>
-            <div class="log-box">' . safeLog . '</div>
+            <div class="log-box">{{SAFE_LOG}}</div>
             
             <div class="notice-text">⚠️ 此版本包含重要功能重构，必须完成更新后方可使用</div>
             
@@ -343,17 +341,28 @@ class AppUpdater {
             <div id="statusBox" class="status-box">正在连接更新通道...</div>
         </body>
         </html>
-        )'
+        '
+
+        html := StrReplace(htmlTemplate, "{{REMOTE_VER}}", remoteVer)
+        html := StrReplace(html, "{{LOCAL_VER}}", localVer)
+        html := StrReplace(html, "{{SAFE_LOG}}", safeLog)
 
         this.doc := this.wb.Document
         this.doc.open()
         this.doc.write(html)
         this.doc.close()
 
-        ; 居中显示并启动绝对置顶守护
-        g.Show("w410 h450 Center")
-        DllCall("SetWindowPos", "Ptr", g.Hwnd, "Ptr", -1, "Int", 0, "Int", 0, "Int", 0, "Int", 0, "UInt", 0x0001 | 0x0002 | 0x0040)
-        SetTimer(() => this._EnforceTopmost(), 200)
+        ; 居中于主程序上方展现
+        if (this.mainHwnd) {
+            WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
+            dx := mx + (mw - 390) // 2
+            dy := my + (mh - 430) // 2
+            g.Show("x" . dx . " y" . dy . " w390 h430")
+        } else {
+            g.Show("w390 h430 Center")
+        }
+        
+        WinActivate("ahk_id " . g.Hwnd)
     }
 
     ; 设置 Web 端状态提示
@@ -437,10 +446,7 @@ class AppUpdater {
             this.SetWebStatus("✅ 更新完成！正在为您重新加载程序...")
             Sleep(800)
 
-            ; 解锁主窗口并重启
-            if (this.mainHwnd)
-                WinSetEnabled(1, "ahk_id " . this.mainHwnd)
-
+            ; 重启程序
             if A_IsCompiled {
                 Run('"' . A_ScriptFullPath . '"')
             } else {
