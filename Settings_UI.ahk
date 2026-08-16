@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent(true)
 
@@ -57,9 +57,6 @@ class SettingsUI {
         }
     }
 
-    ; ==========================================================================
-    ; 获取最佳匹配的 ICO 图标绝对路径
-    ; ==========================================================================
     static GetBestIcoPath() {
         icoDir := A_ScriptDir . "\assets\logo\"
         preferredList := [
@@ -76,9 +73,6 @@ class SettingsUI {
         return ""
     }
 
-    ; ==========================================================================
-    ; Win32 原生 DPI 级别高精度图标渲染绑定
-    ; ==========================================================================
     static ApplyNativeWindowIcons(hwnd) {
         icoPath := this.GetBestIcoPath()
         if (icoPath == "" || !hwnd)
@@ -98,9 +92,6 @@ class SettingsUI {
             SendMessage(0x80, 1, hBigIcon, hwnd)
     }
 
-    ; ==========================================================================
-    ; 初始化系统托盘菜单（点击托盘默认打开设置中心）
-    ; ==========================================================================
     static InitTrayMenu() {
         if (this.trayInitialized)
             return
@@ -119,16 +110,12 @@ class SettingsUI {
         tray.Add()
         tray.Add("❌ 退出", (*) => ExitApp())
         
-        ; 默认左键单机动作设置为：打开设置中心
         tray.Default := "⚙️ 打开设置中心"
         tray.ClickCount := 1
         
         this.trayInitialized := true
     }
 
-    ; ==========================================================================
-    ; 动态遍历 assets\logo 目录，自动读取 PNG/JPG 并转为 Base64
-    ; ==========================================================================
     static GetLogoBase64() {
         logoDir := A_ScriptDir . "\assets\logo\"
         targetPath := ""
@@ -185,7 +172,8 @@ class SettingsUI {
         this.InitTrayMenu()
 
         if (this.gui != 0) {
-            this.gui.Show("w520 h740 Center")
+            this.gui.Show("w520 h790 Center")
+            WinSetAlwaysOnTop(0, "ahk_id " . this.gui.Hwnd)
             this.ApplyNativeWindowIcons(this.gui.Hwnd)
             this.SyncConfigToWeb()
             return
@@ -195,18 +183,17 @@ class SettingsUI {
         this.configFile := A_ScriptDir . "\config\setting.json"
         this.configData := this.LoadConfig()
 
-        myGui := Gui("+AlwaysOnTop", "AI 智能打字翻译 - 设置中心")
+        myGui := Gui("-AlwaysOnTop", "AI 智能打字翻译 - 设置中心")
         myGui.MarginX := 0
         myGui.MarginY := 0
         myGui.BackColor := "F5F6F2"
-
-        this.wb := myGui.AddActiveX("x0 y0 w520 h740", "Shell.Explorer")
+        this.wb := myGui.AddActiveX("x0 y0 w520 h790", "Shell.Explorer")
+    
         this.wb.Value.Silent := true
         this.wb.Value.Navigate("about:blank")
         while this.wb.Value.ReadyState != 4
             Sleep(10)
 
-        ; 获取 Base64 编码并注入占位符
         logoDataUri := this.GetLogoBase64()
         htmlCode := this.GetHTMLTemplate()
         if (logoDataUri != "") {
@@ -215,7 +202,14 @@ class SettingsUI {
             imgTag := '<div class="brand-avatar" style="background:#18181B; display:inline-block;"></div>'
         }
         htmlCode := StrReplace(htmlCode, "{{LOGO_ELEMENT}}", imgTag)
-
+        
+        verText := "v2.0.2"
+        try {
+            if IsSet(AppUpdater)
+                verText := "v" . AppUpdater.GetCurrentVersion()
+        }
+        htmlCode := StrReplace(htmlCode, "{{APP_VERSION}}", verText)
+        
         doc := this.wb.Value.Document
         doc.open()
         doc.write(htmlCode)
@@ -226,8 +220,9 @@ class SettingsUI {
         this.gui := myGui
         myGui.OnEvent("Close", (guiObj) => (this.Hide(), true))
         myGui.OnEvent("Escape", (guiObj) => (this.Hide(), true))
-        
-        myGui.Show("w520 h740 Center")
+
+        myGui.Show("w520 h790 Center")
+        WinSetAlwaysOnTop(0, "ahk_id " . myGui.Hwnd)
         this.ApplyNativeWindowIcons(myGui.Hwnd)
 
         SetTimer(() => this.SyncConfigToWeb(), -50)
@@ -241,18 +236,8 @@ class SettingsUI {
 
     static HandleWebAction(action, jsonPayloadStr) {
         if (action == "check") {
-            baseUrl := RegExMatch(jsonPayloadStr, '"baseUrl"\s*:\s*"([^"]*)"', &u) ? u[1] : ""
-            model := RegExMatch(jsonPayloadStr, '"model"\s*:\s*"([^"]*)"', &m) ? m[1] : ""
-            apiKey := RegExMatch(jsonPayloadStr, '"apiKey"\s*:\s*"([^"]*)"', &k) ? k[1] : ""
-
-            cfg := Map(
-                "base_url", baseUrl,
-                "model", model,
-                "api_key", apiKey
-            )
-            res := AITranslator.ValidateAPI(cfg)
-            this.wb.Value.Document.parentWindow.updateCheckStatus(res.valid ? 1 : 0, res.msg)
-        } 
+            SetTimer(() => this.AsyncDoCheck(jsonPayloadStr), -10)
+        }
         else if (action == "save") {
             try {
                 if !DirExist(A_ScriptDir . "\config")
@@ -273,6 +258,67 @@ class SettingsUI {
         }
     }
 
+    static AsyncDoCheck(jsonPayloadStr) {
+        try {
+            provider := RegExMatch(jsonPayloadStr, '"provider"\s*:\s*"([^"]*)"', &p) ? p[1] : ""
+            baseUrl  := RegExMatch(jsonPayloadStr, '"baseUrl"\s*:\s*"([^"]*)"', &u) ? u[1] : ""
+            model    := RegExMatch(jsonPayloadStr, '"model"\s*:\s*"([^"]*)"', &m) ? m[1] : ""
+            apiKey   := RegExMatch(jsonPayloadStr, '"apiKey"\s*:\s*"([^"]*)"', &k) ? k[1] : ""
+
+            res := this.TestConnection(provider, baseUrl, model, apiKey)
+            this.wb.Value.Document.parentWindow.updateCheckStatus(res.valid ? 1 : 0, res.msg)
+        } catch as err {
+            this.wb.Value.Document.parentWindow.updateCheckStatus(0, "检测异常: " . err.Message)
+        }
+    }
+
+    static TestConnection(provider, baseUrl, model, apiKey) {
+        if (apiKey == "")
+            return { valid: 0, msg: "API Key 不能为空！" }
+
+        req := ComObject("WinHttp.WinHttpRequest.5.1")
+        req.SetTimeouts(4000, 4000, 7000, 7000)
+
+        cleanUrl := RTrim(baseUrl, "/")
+        startTime := A_TickCount
+
+        try {
+            if InStr(provider, "Gemini") && !InStr(cleanUrl, "openai") {
+                if (!InStr(cleanUrl, "v1beta") && !InStr(cleanUrl, "v1"))
+                    cleanUrl .= "/v1beta"
+                
+                fullUrl := cleanUrl . "/models/" . model . ":generateContent?key=" . apiKey
+                body := '{"contents":[{"parts":[{"text":"ping"}]}]}'
+
+                req.Open("POST", fullUrl, false)
+                req.SetRequestHeader("Content-Type", "application/json; charset=UTF-8")
+                req.Send(body)
+            } else {
+                if (!InStr(cleanUrl, "/chat/completions"))
+                    cleanUrl .= "/chat/completions"
+
+                body := '{"model":"' . model . '","messages":[{"role":"user","content":"ping"}],"max_tokens":5}'
+
+                req.Open("POST", cleanUrl, false)
+                req.SetRequestHeader("Content-Type", "application/json; charset=UTF-8")
+                req.SetRequestHeader("Authorization", "Bearer " . apiKey)
+                req.Send(body)
+            }
+
+            latency := A_TickCount - startTime
+            status := req.Status
+
+            if (status == 200) {
+                return { valid: 1, msg: "✓ 连通性测试通过！ 响应正常 (" . latency . " ms)" }
+            } else {
+                return { valid: 0, msg: "❌ 接口返回 HTTP " . status . " (" . latency . " ms): " . SubStr(req.ResponseText, 1, 80) }
+            }
+        } catch as err {
+            latency := A_TickCount - startTime
+            return { valid: 0, msg: "❌ 网络超时或失败 (" . latency . " ms): " . err.Message }
+        }
+    }
+
     static SyncConfigToWeb() {
         if !this.wb || !this.wb.Value
             return
@@ -283,7 +329,9 @@ class SettingsUI {
         
         jsonStr := AITranslator.MapToJSON(this.configData["providers"])
         hkJsonStr := AITranslator.MapToJSON(this.configData["hotkeys"])
-        this.wb.Value.Document.parentWindow.initAllConfigs(curr, source, target, jsonStr, hkJsonStr)
+        try {
+            this.wb.Value.Document.parentWindow.initAllConfigs(curr, source, target, jsonStr, hkJsonStr)
+        }
     }
 
     static LoadConfig() {
@@ -295,9 +343,10 @@ class SettingsUI {
                 "Gemini", Map("base_url", "https://generativelanguage.googleapis.com/v1beta/openai", "model", "gemini-1.5-flash", "api_key", ""),
                 "OpenAI", Map("base_url", "https://api.openai.com/v1", "model", "gpt-4o-mini", "api_key", ""),
                 "NVIDIA", Map("base_url", "https://integrate.api.nvidia.com/v1", "model", "meta/llama-3.1-8b-instruct", "api_key", ""),
+                "Qwen", Map("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1", "model", "qwen-plus", "api_key", ""),
                 "DeepSeek", Map("base_url", "https://api.deepseek.com/v1", "model", "deepseek-chat", "api_key", ""),
                 "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", ""),
-                "Custom", Map("base_url", "https://tokenrhythm.studio/v1", "model", "deepseek-v4-flash", "api_key", "")
+                "Custom", Map("base_url", "https://tokenrhythm.studio/v1", "model", "deepseek-v4-flash", "api_key", "", "is_custom", true, "custom_name", "自定义API(默认)")
             ),
             "hotkeys", Map(
                 "show_bar", "!y",
@@ -320,15 +369,28 @@ class SettingsUI {
             if (RegExMatch(content, '"target_lang"\s*:\s*"([^"]+)"', &t))
                 defaultMap["target_lang"] := t[1]
 
-            for pName in ["Gemini", "OpenAI", "NVIDIA", "DeepSeek", "Doubao", "Custom"] {
-                if RegExMatch(content, 's)"' . pName . '"\s*:\s*\{(.*?)\}', &block) {
-                    bStr := block[1]
-                    if RegExMatch(bStr, '"base_url"\s*:\s*"([^"]*)"', &u)
-                        defaultMap["providers"][pName]["base_url"] := u[1]
-                    if RegExMatch(bStr, '"model"\s*:\s*"([^"]*)"', &md)
-                        defaultMap["providers"][pName]["model"] := md[1]
-                    if RegExMatch(bStr, '"api_key"\s*:\s*"([^"]*)"', &k)
-                        defaultMap["providers"][pName]["api_key"] := k[1]
+            ; 读取所有 Provider (支持动态自定义列表)
+            if RegExMatch(content, 's)"providers"\s*:\s*\{(.*)\}\s*,\s*"hotkeys"', &pBlock) {
+                pContent := pBlock[1]
+                pos := 1
+                while (pos := RegExMatch(pContent, '"([^"]+)"\s*:\s*\{([^}]*)\}', &mMatch, pos)) {
+                    pKey := mMatch[1]
+                    bStr := mMatch[2]
+                    
+                    bUrl := RegExMatch(bStr, '"base_url"\s*:\s*"([^"]*)"', &u) ? u[1] : ""
+                    bModel := RegExMatch(bStr, '"model"\s*:\s*"([^"]*)"', &md) ? md[1] : ""
+                    bKey := RegExMatch(bStr, '"api_key"\s*:\s*"([^"]*)"', &k) ? k[1] : ""
+                    bIsCustom := InStr(bStr, '"is_custom":true') || InStr(bStr, '"is_custom": true')
+                    bCustomName := RegExMatch(bStr, '"custom_name"\s*:\s*"([^"]*)"', &cn) ? cn[1] : pKey
+
+                    defaultMap["providers"][pKey] := Map(
+                        "base_url", bUrl,
+                        "model", bModel,
+                        "api_key", bKey,
+                        "is_custom", bIsCustom,
+                        "custom_name", bCustomName
+                    )
+                    pos += StrLen(mMatch[0])
                 }
             }
 
@@ -354,12 +416,11 @@ class SettingsUI {
             <style>
                 * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
                 html, body { width: 100%; height: 100%; overflow: hidden; background-color: #F5F6F2; color: #18181B; user-select: none; }
-                .container { padding: 16px 22px; position: relative; height: 100%; }
+                .container { padding: 16px 22px; position: relative; height: 100%; box-sizing: border-box; }
 
                 .header-bar { display: table; width: 100%; margin-bottom: 12px; }
                 .brand-left { display: table-cell; vertical-align: middle; }
                 
-                /* 自适应圆角品牌 Logo */
                 .brand-avatar { 
                     display: inline-block; 
                     width: 34px; 
@@ -479,7 +540,7 @@ class SettingsUI {
                     top: calc(100% + 5px);
                     left: 0;
                     right: 0;
-                    height: 180px;
+                    height: 195px;
                     background-color: #F3F4EE !important;
                     border: 1.5px solid #84CC16 !important;
                     border-radius: 11px;
@@ -568,6 +629,20 @@ class SettingsUI {
                     color: #2D4A0C;
                     font-weight: 700;
                 }
+                
+                .del-opt-btn {
+                    color: #9CA3AF;
+                    font-size: 13px;
+                    font-weight: bold;
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    margin-left: 6px;
+                    transition: all 0.15s;
+                }
+                .del-opt-btn:hover {
+                    background-color: #EF4444;
+                    color: #FFFFFF;
+                }
 
                 .lime-card {
                     background: #D8FA63;
@@ -578,6 +653,7 @@ class SettingsUI {
                     max-height: 70px;
                     overflow-y: auto;
                     box-sizing: border-box;
+                    transition: all 0.25s ease;
                 }
                 .lime-card::-webkit-scrollbar {
                     width: 4px;
@@ -589,6 +665,29 @@ class SettingsUI {
                 
                 .lime-tag { font-size: 10.5px; font-weight: 800; letter-spacing: 0.8px; color: #4D7C0F; text-transform: uppercase; margin-bottom: 2px; }
                 .lime-text { font-size: 12px; font-weight: 700; color: #141416; word-break: break-all; line-height: 1.35; }
+
+                .status-spinner {
+                    display: inline-block;
+                    width: 13px;
+                    height: 13px;
+                    border: 2px solid rgba(20, 20, 22, 0.2);
+                    border-radius: 50%;
+                    border-top-color: #141416;
+                    animation: spinAnim 0.75s linear infinite;
+                    -webkit-animation: spinAnim 0.75s linear infinite;
+                    margin-right: 6px;
+                    vertical-align: -2px;
+                }
+
+                @keyframes spinAnim {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+
+                @-webkit-keyframes spinAnim {
+                    0% { -webkit-transform: rotate(0deg); }
+                    100% { -webkit-transform: rotate(360deg); }
+                }
 
                 .btn-row { display: table; width: 100%; }
                 .btn-cell { display: table-cell; width: 50%; padding-right: 6px; }
@@ -603,11 +702,16 @@ class SettingsUI {
                     cursor: pointer;
                     border: none;
                     text-align: center;
+                    transition: all 0.2s ease;
+                }
+                .btn:disabled {
+                    opacity: 0.65;
+                    cursor: not-allowed;
                 }
                 .btn-dark { background: #18181B; color: #FFFFFF; }
-                .btn-dark:hover { background: #27272A; }
+                .btn-dark:hover:not(:disabled) { background: #27272A; }
                 .btn-lime { background: #D8FA63; color: #18181B; border: 1px solid #C4EC44; }
-                .btn-lime:hover { background: #C8EA2D; }
+                .btn-lime:hover:not(:disabled) { background: #C8EA2D; }
 
                 #centerModalToast {
                     position: fixed;
@@ -702,7 +806,7 @@ class SettingsUI {
                                             <div class="select-option" data-value="zh" onclick="selectOption('select-sourceLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
                                             <div class="select-option" data-value="en" onclick="selectOption('select-sourceLang', 'en', 'English (英语)')">English (英语)</div>
                                             <div class="select-option" data-value="ja" onclick="selectOption('select-sourceLang', 'ja', '日本語 (Japanese)')">日本語 (Japanese)</div>
-                                            <div class="select-option" data-value="ko" onclick="selectOption('select-sourceLang', 'ko', '한국어 (Korean)')">한국어 (Korean)</div>
+                                            <div class="select-option" data-value="ko" onclick="selectOption('select-sourceLang', 'ko', '한국语 (Korean)')">한국어 (Korean)</div>
                                             <div class="select-option" data-value="es" onclick="selectOption('select-sourceLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-sourceLang', 'fr', 'Français (法语)')">Français (法语)</div>
                                             <div class="select-option" data-value="de" onclick="selectOption('select-sourceLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
@@ -727,7 +831,7 @@ class SettingsUI {
                                             <div class="select-option selected" data-value="en" onclick="selectOption('select-targetLang', 'en', 'English (英语)')">English (英语)</div>
                                             <div class="select-option" data-value="zh" onclick="selectOption('select-targetLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
                                             <div class="select-option" data-value="ja" onclick="selectOption('select-targetLang', 'ja', '日本語 (日语)')">日本語 (日语)</div>
-                                            <div class="select-option" data-value="ko" onclick="selectOption('ko', '한국어 (韩语)')">한국어 (韩语)</div>
+                                            <div class="select-option" data-value="ko" onclick="selectOption('select-targetLang', 'ko', '한국어 (韩语)')">한국어 (韩语)</div>
                                             <div class="select-option" data-value="es" onclick="selectOption('select-targetLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-targetLang', 'fr', 'Français (法语)')">Français (法语)</div>
                                             <div class="select-option" data-value="de" onclick="selectOption('select-targetLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
@@ -752,17 +856,19 @@ class SettingsUI {
                                     </div>
                                     <div class="select-dropdown">
                                         <div class="capsule-track"><div class="capsule-thumb" id="thumb-provider"></div></div>
-                                        <div class="select-scroll-viewport" onscroll="updateScroll('select-provider', 'thumb-provider')">
-                                            <div class="select-option" data-value="Gemini" onclick="selectOption('select-provider', 'Gemini', 'Gemini（需魔法）')">Gemini（需魔法）</div>
-                                            <div class="select-option" data-value="OpenAI" onclick="selectOption('select-provider', 'OpenAI', 'ChatGPT（需魔法）')">ChatGPT（需魔法）</div>
-                                            <div class="select-option" data-value="NVIDIA" onclick="selectOption('select-provider', 'NVIDIA', 'NVIDIA·免费满血模型（需魔法）')">NVIDIA·免费满血模型（需魔法）</div>
-                                            <div class="select-option selected" data-value="DeepSeek" onclick="selectOption('select-provider', 'DeepSeek', 'DeepSeek（官方直连·深度思考）')">DeepSeek（官方直连·深度思考）</div>
-                                            <div class="select-option" data-value="Qwen" onclick="selectOption('select-provider', 'Qwen', '通义千问 (阿里百炼·国内直连)')">通义千问 (阿里百炼·国内直连)</div>
-                                            <div class="select-option" data-value="Doubao" onclick="selectOption('select-provider', 'Doubao', '豆包(ByteDance)')">豆包(ByteDance)</div>
-                                            <div class="select-option" data-value="Custom" onclick="selectOption('select-provider', 'Custom', '自定义API(OpenAI 协议兼容）')">自定义API(OpenAI 协议兼容）</div>
+                                        <div class="select-scroll-viewport" id="providerViewport" onscroll="updateScroll('select-provider', 'thumb-provider')">
+                                            <!-- 由 JS 动态渲染模型列表 -->
                                         </div>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+
+                        <!-- 动态别名输入框（仅自定义项目显示） -->
+                        <div class="form-row" id="rowCustomName" style="display: none;">
+                            <div class="form-label">平台昵称</div>
+                            <div class="form-field">
+                                <input type="text" id="customName" class="input-box" placeholder="如: OneAPI-中转 / 本地Ollama" />
                             </div>
                         </div>
 
@@ -793,17 +899,17 @@ class SettingsUI {
 
                     <div class="btn-row">
                         <div class="btn-cell">
-                            <button class="btn btn-dark" onclick="triggerCheck()">🚀 检测 API 有效性</button>
+                            <button class="btn btn-dark" id="btnTestApi" onclick="triggerCheck()">🚀 检测 API 有效性</button>
                         </div>
                         <div class="btn-cell">
-                            <button class="btn btn-lime" onclick="triggerSave()">💾 保存并生效</button>
+                            <button class="btn btn-lime" id="btnSave" onclick="triggerSave()">💾 保存并生效</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- 页面 2: 快捷键设置 -->
                 <div class="page-section" id="pageHotkey">
-                    <div class="tag">SHORTCUT PREFERENCES</div>
+                    <div class="tag">GLOBAL SYSTEM SHORTCUTS</div>
                     <div class="main-title">全局交互快捷键管理</div>
                     <div class="sub-desc">支持自定义全局唤出、操作确认与快速模型轮换按键。</div>
 
@@ -861,18 +967,31 @@ class SettingsUI {
                         </div>
                     </div>
                 </div>
+
+                <!-- 底部版本号徽章 -->
+                <div style="position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; pointer-events: none;">
+                    <span style="display: inline-block; background-color: #D4F658; color: #1A2E05; font-size: 12px; font-weight: bold; padding: 4px 16px; border-radius: 6px; border: 1px solid #c0e840; box-shadow: 0 2px 6px rgba(0,0,0,0.06); pointer-events: auto;">当前版本: {{APP_VERSION}}</span>
+                </div>
             </div>
 
             <script>
                 var g_currentProvider = "DeepSeek";
                 var g_allConfigs = {
-                    "Gemini": { base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-1.5-flash", api_key: "" },
-                    "OpenAI": { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", api_key: "" },
-                    "NVIDIA": { base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.1-8b-instruct", api_key: "" },
-                    "Qwen": { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", api_key: "" },
-                    "DeepSeek": { base_url: "https://api.deepseek.com/v1", model: "deepseek-chat", api_key: "" },
-                    "Doubao": { base_url: "https://ark.cn-beijing.volces.com/api/v3", model: "ep-xxxxxx", api_key: "" },
-                    "Custom": { base_url: "https://tokenrhythm.studio/v1", model: "deepseek-v4-flash", api_key: "" }
+                    "Gemini": { base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-1.5-flash", api_key: "", is_custom: false },
+                    "OpenAI": { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", api_key: "", is_custom: false },
+                    "NVIDIA": { base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.1-8b-instruct", api_key: "", is_custom: false },
+                    "Qwen": { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", api_key: "", is_custom: false },
+                    "DeepSeek": { base_url: "https://api.deepseek.com/v1", model: "deepseek-chat", api_key: "", is_custom: false },
+                    "Doubao": { base_url: "https://ark.cn-beijing.volces.com/api/v3", model: "ep-xxxxxx", api_key: "", is_custom: false }
+                };
+
+                var g_builtinLabels = {
+                    "Gemini": "Gemini（需魔法）",
+                    "OpenAI": "ChatGPT（需魔法）",
+                    "NVIDIA": "NVIDIA·免费满血模型（需魔法）",
+                    "Qwen": "通义千问 (阿里百炼·国内直连)",
+                    "DeepSeek": "DeepSeek（官方直连·深度思考）",
+                    "Doubao": "豆包(ByteDance)"
                 };
 
                 var g_hotkeys = {
@@ -885,6 +1004,67 @@ class SettingsUI {
 
                 var toastTimer = null;
 
+                function renderProviderOptions() {
+                    var vp = document.getElementById("providerViewport");
+                    if (!vp) return;
+                    var html = "";
+
+                    // 1. 系统内置
+                    for (var k in g_builtinLabels) {
+                        var sel = (k === g_currentProvider) ? " selected" : "";
+                        html += '<div class="select-option' + sel + '" data-value="' + k + '" onclick="selectOption(\'select-provider\', \'' + k + '\', \'' + g_builtinLabels[k] + '\')">' + g_builtinLabels[k] + '</div>';
+                    }
+
+                    // 2. 自定义模型
+                    for (var key in g_allConfigs) {
+                        if (!g_builtinLabels[key]) {
+                            var item = g_allConfigs[key];
+                            var displayName = (item.custom_name || key);
+                            var isSel = (key === g_currentProvider) ? " selected" : "";
+                            html += '<div class="select-option' + isSel + '" data-value="' + key + '" onclick="selectOption(\'select-provider\', \'' + key + '\', \'' + displayName + '\')">';
+                            html += '<span>⚙️ ' + displayName + '</span>';
+                            html += '<span class="del-opt-btn" title="删除该自定义模型" onclick="deleteCustomProvider(event, \'' + key + '\')">✕</span>';
+                            html += '</div>';
+                        }
+                    }
+
+                    // 3. 常驻添加新自定义
+                    html += '<div class="select-option" style="color:#15803D; font-weight:700; border-top:1px dashed #D9DCD2; margin-top:4px;" data-value="__ADD_NEW__" onclick="addNewCustomProvider()">➕ 添加自定义 API...</div>';
+                    vp.innerHTML = html;
+                }
+
+                function addNewCustomProvider() {
+                    closeAllDropdowns();
+                    var newId = "Custom_" + new Date().getTime();
+                    g_allConfigs[newId] = {
+                        base_url: "https://api.openai.com/v1",
+                        model: "gpt-3.5-turbo",
+                        api_key: "",
+                        is_custom: true,
+                        custom_name: "自定义模型 (" + (Object.keys(g_allConfigs).length - 5) + ")"
+                    };
+                    g_currentProvider = newId;
+                    renderProviderOptions();
+                    setCustomSelectValue("select-provider", newId);
+                    renderCurrentForm();
+                    updateStatusText("已创建新自定义配置项，请修改昵称及接口参数后保存。");
+                }
+
+                function deleteCustomProvider(e, key) {
+                    if (e) e.stopPropagation();
+                    if (!confirm("确定要删除自定义模型【" + (g_allConfigs[key].custom_name || key) + "】吗？"))
+                        return;
+
+                    delete g_allConfigs[key];
+                    if (g_currentProvider === key) {
+                        g_currentProvider = "DeepSeek";
+                    }
+                    renderProviderOptions();
+                    setCustomSelectValue("select-provider", g_currentProvider);
+                    renderCurrentForm();
+                    showCenterToast("已成功删除模型配置", false);
+                }
+
                 function switchTab(tabName) {
                     var tabEngine = document.getElementById("tabEngine");
                     var tabHotkey = document.getElementById("tabHotkey");
@@ -894,13 +1074,13 @@ class SettingsUI {
                     if (tabName === "engine") {
                         tabEngine.className = "pill active";
                         tabHotkey.className = "pill";
-                        pageEngine.className = "page-section active";
-                        pageHotkey.className = "page-section";
+                        pageEngine.style.display = "block";
+                        pageHotkey.style.display = "none";
                     } else {
                         tabEngine.className = "pill";
                         tabHotkey.className = "pill active";
-                        pageEngine.className = "page-section";
-                        pageHotkey.className = "page-section active";
+                        pageEngine.style.display = "none";
+                        pageHotkey.style.display = "block";
                     }
                 }
 
@@ -974,7 +1154,7 @@ class SettingsUI {
                     }
                     thumb.style.display = "block";
 
-                    var maxThumbTravel = 168 - 36;
+                    var maxThumbTravel = 185 - 36;
                     var progress = viewport.scrollTop / scrollHeight;
                     thumb.style.top = (progress * maxThumbTravel) + "px";
                 }
@@ -1028,14 +1208,21 @@ class SettingsUI {
                     var el = document.getElementById(selectId);
                     if (!el) return;
                     var options = el.querySelectorAll(".select-option");
+                    var matched = false;
                     for (var i = 0; i < options.length; i++) {
                         if (options[i].getAttribute("data-value") === value) {
                             el.setAttribute("data-value", value);
-                            el.querySelector(".select-text").innerText = options[i].innerText;
+                            var sp = options[i].querySelector("span");
+                            el.querySelector(".select-text").innerText = sp ? sp.innerText : options[i].innerText;
                             options[i].classList.add("selected");
+                            matched = true;
                         } else {
                             options[i].classList.remove("selected");
                         }
+                    }
+                    if (!matched && g_allConfigs[value]) {
+                        el.setAttribute("data-value", value);
+                        el.querySelector(".select-text").innerText = g_allConfigs[value].custom_name || value;
                     }
                 }
 
@@ -1066,6 +1253,7 @@ class SettingsUI {
                     } catch(e) {}
 
                     g_currentProvider = currProvider;
+                    renderProviderOptions();
                     setCustomSelectValue("select-provider", currProvider);
                     setCustomSelectValue("select-sourceLang", sourceLang);
                     setCustomSelectValue("select-targetLang", targetLang);
@@ -1076,6 +1264,16 @@ class SettingsUI {
 
                 function renderCurrentForm() {
                     var cfg = g_allConfigs[g_currentProvider] || {};
+                    var rowName = document.getElementById("rowCustomName");
+                    var isCustom = !g_builtinLabels[g_currentProvider];
+
+                    if (isCustom) {
+                        rowName.style.display = "table";
+                        document.getElementById("customName").value = cfg.custom_name || g_currentProvider;
+                    } else {
+                        rowName.style.display = "none";
+                    }
+
                     document.getElementById("baseUrl").value = cfg.base_url || "";
                     document.getElementById("modelName").value = cfg.model || "";
                     document.getElementById("apiKey").value = cfg.api_key || "";
@@ -1090,22 +1288,45 @@ class SettingsUI {
                 }
 
                 function onProviderChange(newProvider) {
-                    g_allConfigs[g_currentProvider] = {
-                        base_url: document.getElementById("baseUrl").value,
-                        model: document.getElementById("modelName").value,
-                        api_key: document.getElementById("apiKey").value
-                    };
-
+                    saveCurrentFormToMemory();
                     g_currentProvider = newProvider;
                     renderCurrentForm();
+                    updateStatusText("已切换至「" + (g_builtinLabels[newProvider] || g_allConfigs[newProvider].custom_name || newProvider) + "」，专属配置已载入。");
+                }
 
-                    updateStatusText("已切换至「" + newProvider + "」，专属配置已自动载入。");
+                function saveCurrentFormToMemory() {
+                    if (!g_allConfigs[g_currentProvider]) {
+                        g_allConfigs[g_currentProvider] = {};
+                    }
+                    var isCustom = !g_builtinLabels[g_currentProvider];
+                    g_allConfigs[g_currentProvider].base_url = document.getElementById("baseUrl").value;
+                    g_allConfigs[g_currentProvider].model = document.getElementById("modelName").value;
+                    g_allConfigs[g_currentProvider].api_key = document.getElementById("apiKey").value;
+                    if (isCustom) {
+                        var cName = document.getElementById("customName").value.trim() || g_currentProvider;
+                        g_allConfigs[g_currentProvider].custom_name = cName;
+                        g_allConfigs[g_currentProvider].is_custom = true;
+                    }
                 }
 
                 function triggerCheck() {
-                    updateStatusText("⏳ 正在发送测速探针，请稍候...");
+                    var btn = document.getElementById("btnTestApi");
+                    if (btn) {
+                        btn.disabled = true;
+                        btn.innerText = "⏳ 正在检测...";
+                    }
+
+                    var card = document.getElementById("statusCard");
+                    var txt = document.getElementById("statusText");
+                    if (card && txt) {
+                        card.style.background = "#D8FA63";
+                        card.style.borderColor = "#C4EC44";
+                        txt.style.color = "#141416";
+                        txt.innerHTML = "<span class=\"status-spinner\"></span> 正在发送连通性探针，测速中...";
+                    }
+
                     var payload = {
-                        provider: getCustomSelectValue("select-provider"),
+                        provider: g_currentProvider,
                         baseUrl: document.getElementById("baseUrl").value,
                         model: document.getElementById("modelName").value,
                         apiKey: document.getElementById("apiKey").value
@@ -1114,11 +1335,9 @@ class SettingsUI {
                 }
 
                 function triggerSave() {
-                    g_allConfigs[g_currentProvider] = {
-                        base_url: document.getElementById("baseUrl").value,
-                        model: document.getElementById("modelName").value,
-                        api_key: document.getElementById("apiKey").value
-                    };
+                    saveCurrentFormToMemory();
+                    renderProviderOptions();
+                    setCustomSelectValue("select-provider", g_currentProvider);
 
                     var currentHotkeys = {
                         show_bar: userToAhk(document.getElementById("hk_show_bar").value) || "!y",
@@ -1136,35 +1355,51 @@ class SettingsUI {
                         hotkeys: currentHotkeys
                     };
 
-                    showCenterToast("全部配置已生效，快捷键已同步更新", false);
+                    showCenterToast("全部配置已生效，快捷键与模型列表已同步", false);
                     window.ahk_call("save", JSON.stringify(fullConfigObj));
                 }
 
                 function updateCheckStatus(success, msg) {
+                    var btn = document.getElementById("btnTestApi");
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = "🚀 检测 API 有效性";
+                    }
+
                     var card = document.getElementById("statusCard");
                     var txt = document.getElementById("statusText");
-                    if (success === 1) {
-                        card.style.background = "#D8FA63";
-                        card.style.borderColor = "#C4EC44";
-                        txt.style.color = "#15803D";
-                        txt.innerHTML = "<b>" + msg + "</b>";
-                    } else {
-                        card.style.background = "#FEE2E2";
-                        card.style.borderColor = "#FCA5A5";
-                        txt.style.color = "#B91C1C";
-                        txt.innerHTML = "<b>" + msg + "</b>";
+                    if (card && txt) {
+                        if (success === 1) {
+                            card.style.background = "#D8FA63";
+                            card.style.borderColor = "#C4EC44";
+                            txt.style.color = "#15803D";
+                            txt.innerHTML = "<b>" + msg + "</b>";
+                        } else {
+                            card.style.background = "#FEE2E2";
+                            card.style.borderColor = "#FCA5A5";
+                            txt.style.color = "#B91C1C";
+                            txt.innerHTML = "<b>" + msg + "</b>";
+                        }
+                        card.scrollTop = 0;
                     }
-                    card.scrollTop = 0;
                 }
 
                 function updateStatusText(text) {
+                    var btn = document.getElementById("btnTestApi");
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerText = "🚀 检测 API 有效性";
+                    }
+
                     var card = document.getElementById("statusCard");
                     var txt = document.getElementById("statusText");
-                    card.style.background = "#D8FA63";
-                    card.style.borderColor = "#C4EC44";
-                    txt.style.color = "#141416";
-                    txt.innerHTML = text;
-                    card.scrollTop = 0;
+                    if (card && txt) {
+                        card.style.background = "#D8FA63";
+                        card.style.borderColor = "#C4EC44";
+                        txt.style.color = "#141416";
+                        txt.innerHTML = text;
+                        card.scrollTop = 0;
+                    }
                 }
 
                 function showCenterToast(msg, isError) {

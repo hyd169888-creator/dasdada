@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 #Include Settings_UI.ahk
 #Include AI_Translate.ahk
 

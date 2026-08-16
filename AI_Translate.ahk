@@ -1,15 +1,32 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 
 class AITranslator {
 
     ; =========================================================================
-    ; 统一请求入口
+    ; 统一请求入口 (智能推导引擎通道)
     ; =========================================================================
     static Request(text, cfg, targetLang := "en", sourceLang := "auto") {
         if (Trim(text) == "")
             return { success: false, msg: "输入内容为空", result: "" }
 
-        provider := cfg.Has("provider") ? cfg["provider"] : "Gemini"
+        provider := cfg.Has("provider") ? cfg["provider"] : ""
+        baseUrl := cfg.Has("base_url") ? cfg["base_url"] : ""
+
+        ; 自动推导引擎类型，避免因缺失 provider 字段而误走 Gemini 导致 404
+        if (provider == "") {
+            if InStr(baseUrl, "googleapis.com") && !InStr(baseUrl, "openai")
+                provider := "Gemini"
+            else if InStr(baseUrl, "dashscope.aliyuncs.com")
+                provider := "Qwen"
+            else if InStr(baseUrl, "nvidia.com")
+                provider := "NVIDIA"
+            else if InStr(baseUrl, "deepseek.com")
+                provider := "DeepSeek"
+            else if InStr(baseUrl, "volces.com")
+                provider := "Doubao"
+            else
+                provider := "OpenAI"
+        }
 
         ; 1. Google Gemini 专用通道
         if (provider == "Gemini") {
@@ -25,12 +42,8 @@ class AITranslator {
             return this.RequestOpenAICompatible(text, cfg, targetLang, sourceLang)
         }
 
-        ; 3. 标准 OpenAI 兼容协议（DeepSeek, OpenAI, NVIDIA, Doubao, Custom）
-        if (provider == "OpenAI" || provider == "DeepSeek" || provider == "NVIDIA" || provider == "Doubao" || provider == "Custom") {
-            return this.RequestOpenAICompatible(text, cfg, targetLang, sourceLang)
-        }
-
-        return { success: false, msg: "未知的翻译模型引擎: " . provider, result: "" }
+        ; 3. 标准 OpenAI 兼容协议（DeepSeek, OpenAI, NVIDIA, Doubao, Custom 等）
+        return this.RequestOpenAICompatible(text, cfg, targetLang, sourceLang)
     }
 
     ; =========================================================================
@@ -41,19 +54,23 @@ class AITranslator {
         if (apiKey == "")
             return { success: false, msg: "未配置 Gemini API Key", result: "" }
 
+        baseUrl := cfg.Has("base_url") ? RTrim(cfg["base_url"], "/") : "https://generativelanguage.googleapis.com/v1beta"
+        if (!InStr(baseUrl, "v1beta") && !InStr(baseUrl, "v1"))
+            baseUrl .= "/v1beta"
+
         model := (cfg.Has("model") && cfg["model"] != "") ? cfg["model"] : "gemini-flash-latest"
-        url := "https://generativelanguage.googleapis.com/v1beta/models/" . model . ":generateContent?key=" . apiKey
+        url := baseUrl . "/models/" . model . ":generateContent?key=" . apiKey
 
         targetName := this.GetLangName(targetLang)
         prompt := "Translate the following text into " . targetName . ". Only return the direct translation without any explanation, markdown formatting, or introductory words:`n`n" . text
 
         payload := '{"contents":[{"parts":[{"text":' . this.EscapeJSON(prompt) . '}]}]}'
 
-        return this.ExecuteWinHttp(url, "POST", payload, Map("Content-Type", "application/json"), cfg)
+        return this.ExecuteWinHttp(url, "POST", payload, Map("Content-Type", "application/json; charset=utf-8"), cfg)
     }
 
     ; =========================================================================
-    ; 2. OpenAI 兼容协议实现 (Qwen / DeepSeek / OpenAI / NVIDIA / Doubao)
+    ; 2. OpenAI 兼容协议实现 (NVIDIA / DeepSeek / Qwen / OpenAI / Doubao / Custom)
     ; =========================================================================
     static RequestOpenAICompatible(text, cfg, targetLang, sourceLang) {
         apiKey := cfg.Has("api_key") ? cfg["api_key"] : ""
@@ -64,7 +81,11 @@ class AITranslator {
         if (baseUrl == "")
             baseUrl := "https://api.openai.com/v1"
         
-        url := baseUrl . "/chat/completions"
+        ; 智能规范化 completions 接口路径
+        url := baseUrl
+        if (!InStr(url, "/chat/completions"))
+            url .= "/chat/completions"
+
         model := (cfg.Has("model") && cfg["model"] != "") ? cfg["model"] : "gpt-3.5-turbo"
 
         targetName := this.GetLangName(targetLang)
@@ -74,10 +95,10 @@ class AITranslator {
             . ',"messages":['
             . '{"role":"system","content":' . this.EscapeJSON(sysPrompt) . '},'
             . '{"role":"user","content":' . this.EscapeJSON(text) . '}'
-            . '],"temperature":0.3}'
+            . '],"temperature":0.3,"max_tokens":1024}'
 
         headers := Map(
-            "Content-Type", "application/json",
+            "Content-Type", "application/json; charset=utf-8",
             "Authorization", "Bearer " . apiKey
         )
 
@@ -85,7 +106,7 @@ class AITranslator {
     }
 
     ; =========================================================================
-    ; 底层 WinHttp 请求驱动 (支持代理)
+    ; 底层 WinHttp 请求驱动 (支持代理与超时控制)
     ; =========================================================================
     static ExecuteWinHttp(url, method, payload, headers, cfg) {
         try {
@@ -101,7 +122,7 @@ class AITranslator {
                 http.SetProxy(2, proxyHost . ":" . proxyPort)
             }
 
-            http.SetTimeouts(3000, 3000, 8000, 10000)
+            http.SetTimeouts(4000, 4000, 8000, 10000)
 
             for hKey, hVal in headers {
                 http.SetRequestHeader(hKey, hVal)
@@ -130,7 +151,7 @@ class AITranslator {
     }
 
     ; =========================================================================
-    ; JSON 序列化与解析辅助工具 (供 Settings_UI 调用)
+    ; JSON 序列化与解析辅助工具
     ; =========================================================================
     static MapToJSON(obj) {
         if !IsObject(obj) {
@@ -167,7 +188,6 @@ class AITranslator {
             return res . "}"
         }
 
-        ; 普通 Object
         items := []
         for k, v in obj.OwnProps() {
             items.Push(this.EscapeJSON(String(k)) . ":" . this.MapToJSON(v))
