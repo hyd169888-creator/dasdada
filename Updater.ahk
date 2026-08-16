@@ -1,4 +1,4 @@
-#Requires AutoHotkey v2.0
+﻿#Requires AutoHotkey v2.0
 
 class AppUpdater {
     ; GitHub 仓库地址配置
@@ -46,7 +46,7 @@ class AppUpdater {
         return 0
     }
 
-    ; 防缓存 HTTP 请求
+    ; 防缓存读取 version.json 文本
     static FetchText(url) {
         reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
         try {
@@ -64,7 +64,32 @@ class AppUpdater {
         return ""
     }
 
-    ; 窗口抖动提醒 (点击主窗口或主窗口[X]时触发)
+    ; 二进制流下载文件 (彻底杜绝编码二次转码损坏问题)
+    static DownloadBinaryFile(url, destPath) {
+        reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
+        try {
+            http := ComObject("WinHttp.WinHttpRequest.5.1")
+            http.SetTimeouts(5000, 5000, 15000, 15000)
+            http.Open("GET", reqUrl, false)
+            http.SetRequestHeader("Pragma", "no-cache")
+            http.SetRequestHeader("Cache-Control", "no-cache, no-store, must-revalidate")
+            http.SetRequestHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+            http.Send()
+            if (http.Status == 200) {
+                stream := ComObject("ADODB.Stream")
+                stream.Type := 1 ; 二进制模式 adTypeBinary
+                stream.Open()
+                stream.Write(http.ResponseBody)
+                stream.SaveToFile(destPath, 2) ; 覆盖写入 adSaveCreateOverWrite
+                stream.Close()
+                return true
+            }
+        } catch {
+        }
+        return false
+    }
+
+    ; 窗口抖动提醒
     static ShakeModal() {
         if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
             return
@@ -82,7 +107,7 @@ class AppUpdater {
         }
     }
 
-    ; 拦截移动/关闭消息：禁止拖动窗口，拦截主窗口关闭并抖动提示
+    ; 拦截移动/关闭消息
     static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
             cmd := wParam & 0xFFF0
@@ -226,7 +251,7 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; HTML 模板
+        ; HTML 模板（内置横向胶囊动态进度条）
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -363,13 +388,42 @@ class AppUpdater {
             .btn-update:hover {
                 background-color: #CBF048;
             }
-            .status-box {
+
+            /* 横向胶囊进度条组件 */
+            .progress-container {
                 display: none;
-                text-align: center;
+                width: 100%;
                 margin-top: 12px;
-                font-size: 12px;
+            }
+            .progress-track {
+                width: 100%;
+                height: 10px;
+                background: #F1F5F9;
+                border: 1px solid #E2E8F0;
+                border-radius: 20px;
+                overflow: hidden;
+                position: relative;
+            }
+            .progress-fill {
+                width: 0%;
+                height: 100%;
+                background: linear-gradient(90deg, #84cc16 0%, #D8FA63 100%);
+                border-radius: 20px;
+                transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+            .progress-meta {
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                margin-top: 6px;
+                font-size: 11px;
                 font-weight: 700;
-                color: #0F80E6;
+            }
+            .progress-status {
+                color: #15803D;
+            }
+            .progress-pct {
+                color: #64748B;
             }
         </style>
         </head>
@@ -397,7 +451,16 @@ class AppUpdater {
                 🚀 立即下载并应用更新
             </button>
             
-            <div id="statusBox" class="status-box">正在连接更新通道...</div>
+            <!-- 胶囊进度条 -->
+            <div id="progressContainer" class="progress-container">
+                <div class="progress-track">
+                    <div id="progressFill" class="progress-fill"></div>
+                </div>
+                <div class="progress-meta">
+                    <span id="progressStatus" class="progress-status">正在连接更新通道...</span>
+                    <span id="progressPct" class="progress-pct">0%</span>
+                </div>
+            </div>
 
             <script>
                 function initScroll() {
@@ -486,7 +549,7 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
-        ; 注册 JS 原生桥接对象 (彻底解决点击无响应)
+        ; 注册 JS 桥接对象
         bridge := {
             TriggerUpdate: (*) => AppUpdater.TriggerUpdateFromWeb()
         }
@@ -505,62 +568,75 @@ class AppUpdater {
         WinActivate("ahk_id " . g.Hwnd)
     }
 
-    ; 设置 Web 端状态提示
-    static SetWebStatus(msg, isError := false) {
+    ; 更新前端胶囊进度条与状态
+    static UpdateProgressUI(pct, statusText, isError := false) {
         try {
             bBtn := this.doc.getElementById("btnUpdate")
-            sBox := this.doc.getElementById("statusBox")
-            
+            pCont := this.doc.getElementById("progressContainer")
+            pFill := this.doc.getElementById("progressFill")
+            pStatus := this.doc.getElementById("progressStatus")
+            pPct := this.doc.getElementById("progressPct")
+
             if (isError) {
                 bBtn.style.display := "flex"
-                sBox.style.display := "block"
-                sBox.style.color := "#DC2626"
-                sBox.innerText := msg
-            } else {
-                bBtn.style.display := "none"
-                sBox.style.display := "block"
-                sBox.style.color := "#0F80E6"
-                sBox.innerText := msg
+                pCont.style.display := "none"
+                MsgBox(statusText, "更新失败", "Iconx")
+                return
             }
+
+            bBtn.style.display := "none"
+            pCont.style.display := "block"
+            pFill.style.width := pct . "%"
+            pPct.innerText := pct . "%"
+            pStatus.innerText := statusText
         }
     }
 
-    ; 执行更新与组件覆写
+    ; 执行更新与组件覆写 (二进制安全下载)
     static PerformUpdate(remoteVer, fileList) {
         if (this.isUpdating)
             return
         this.isUpdating := true
 
-        this.SetWebStatus("正在连接更新通道并下载组件...")
+        this.UpdateProgressUI(5, "正在建立高速通道...")
 
         successCount := 0
         tempDir := A_ScriptDir . "\~temp_update"
         if !DirExist(tempDir)
             DirCreate(tempDir)
 
+        totalFiles := fileList.Length
+
         for idx, fileName in fileList {
-            this.SetWebStatus("正在同步核心文件 (" . idx . "/" . fileList.Length . "): " . fileName)
-            
+            ; 动态计算真实百分比
+            currentPct := Integer(10 + ((idx - 0.5) / totalFiles) * 80)
+            this.UpdateProgressUI(currentPct, "正在下载组件 (" . idx . "/" . totalFiles . ")...")
+
+            tempPath := tempDir . "\" . fileName
+            if FileExist(tempPath)
+                FileDelete(tempPath)
+
+            ; 优先代理，失败直连 (二进制模式)
             fileUrl := this.rawBaseUrl . "/" . fileName
-            fileContent := this.FetchText(fileUrl)
+            ok := this.DownloadBinaryFile(fileUrl, tempPath)
             
-            if (fileContent == "") {
+            if (!ok) {
                 fileUrl := this.directRawUrl . "/" . fileName
-                fileContent := this.FetchText(fileUrl)
+                ok := this.DownloadBinaryFile(fileUrl, tempPath)
             }
 
-            if (fileContent != "") {
-                tempPath := tempDir . "\" . fileName
-                try {
-                    if FileExist(tempPath)
-                        FileDelete(tempPath)
-                    FileAppend(fileContent, tempPath, "UTF-8")
-                    successCount++
-                }
+            if (ok && FileExist(tempPath) && FileGetSize(tempPath) > 0) {
+                successCount++
             }
+
+            finishPct := Integer(10 + (idx / totalFiles) * 80)
+            this.UpdateProgressUI(finishPct, "正在同步组件 (" . idx . "/" . totalFiles . ")...")
+            Sleep(60) ; 微量缓冲让平滑动画更加丝滑
         }
 
-        if (successCount >= fileList.Length) {
+        if (successCount >= totalFiles) {
+            this.UpdateProgressUI(95, "正在应用组件...")
+
             ; 替换实际脚本
             for fileName in fileList {
                 src := tempDir . "\" . fileName
@@ -583,8 +659,8 @@ class AppUpdater {
 
             try DirDelete(tempDir, 1)
 
-            this.SetWebStatus("✅ 更新完成！正在为您重新加载程序...")
-            Sleep(800)
+            this.UpdateProgressUI(100, "✅ 更新完成，正在重启...")
+            Sleep(500)
 
             ; 恢复主窗口
             if (this.mainHwnd && WinExist("ahk_id " . this.mainHwnd))
@@ -599,7 +675,7 @@ class AppUpdater {
             ExitApp()
         } else {
             this.isUpdating := false
-            this.SetWebStatus("❌ 部分组件下载失败，请检查网络后重试", true)
+            this.UpdateProgressUI(0, "部分组件下载失败，请检查网络", true)
         }
     }
 }
