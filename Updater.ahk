@@ -62,7 +62,7 @@ class AppUpdater {
         return ""
     }
 
-    ; 窗口抖动提醒
+    ; 窗口抖动提醒 (点击主窗口或主窗口[X]时触发)
     static ShakeModal() {
         if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
             return
@@ -80,21 +80,26 @@ class AppUpdater {
         }
     }
 
-    ; 拦截移动消息：禁止主程序与更新弹窗拖动，保留最小化功能
+    ; 拦截移动/关闭消息：禁止拖动窗口，拦截 [X] 并抖动提醒，保留最小化
     static _OnWmSysCommand(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            ; 拦截 SC_MOVE (0xF010)，允许 SC_MINIMIZE (0xF020)
-            if ((wParam & 0xFFF0) == 0xF010)
+            cmd := wParam & 0xFFF0
+            ; 拦截移动 (SC_MOVE = 0xF010)
+            if (cmd == 0xF010)
                 return 0
+            ; 拦截关闭 (SC_CLOSE = 0xF060) 并抖动提醒必须更新
+            if (cmd == 0xF060) {
+                AppUpdater.ShakeModal()
+                return 0
+            }
         }
     }
 
     static _OnWmNcLButtonDown(wParam, lParam, msg, hwnd) {
         if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == AppUpdater.mainHwnd)) {
-            ; 点击标题栏 (HTCAPTION = 2) 禁止拖动，点击主程序标题栏时触发弹窗抖动
-            if (wParam == 2) {
-                if (hwnd == AppUpdater.mainHwnd)
-                    AppUpdater.ShakeModal()
+            ; 点击标题栏 (HTCAPTION = 2) 或点击关闭按钮 (HTCLOSE = 20)
+            if (wParam == 2 || wParam == 20) {
+                AppUpdater.ShakeModal()
                 return 0
             }
         }
@@ -164,14 +169,14 @@ class AppUpdater {
 
         this.mainHwnd := WinExist("AI 智能打字翻译 - 设置中心")
         
-        ; 注册全局防拖动拦截器
+        ; 注册全局防拖动与拦截器
         if (!this.isHooked) {
             OnMessage(0x0112, (wp, lp, msg, hwnd) => this._OnWmSysCommand(wp, lp, msg, hwnd))
             OnMessage(0x00A1, (wp, lp, msg, hwnd) => this._OnWmNcLButtonDown(wp, lp, msg, hwnd))
             this.isHooked := true
         }
 
-        ; 通过 +Owner 建立父子属主关系：确保永远在主程序上方，但允许被其他软件（如浏览器）正常覆盖，且跟随最小化
+        ; 父子属主关系 (+Owner)：在主程序上方，可跟随最小化，并可被其他软件/浏览器正常覆盖
         ownerOpt := this.mainHwnd ? " +Owner" . this.mainHwnd : ""
         g := Gui(ownerOpt . " -MaximizeBox -MinimizeBox -SysMenu +Border +ToolWindow +OwnDialogs", "系统更新")
         g.BackColor := "0xF8FAF5"
@@ -196,8 +201,9 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; 模板渲染 (精准替换占位符，杜绝字符串拼接乱码)
-        htmlTemplate := '
+        ; HTML 模板（带标准的 AHK v2 多行续行括号）
+        htmlTemplate := "
+        (
         <!DOCTYPE html>
         <html>
         <head>
@@ -290,7 +296,7 @@ class AppUpdater {
                 text-align: center;
                 margin-top: 12px;
             }
-            /* 与主界面 [保存并生效] 一致的荧光绿按钮样式 */
+            /* 荧光绿主操作按钮 (与主程序[保存并生效]同款) */
             .btn-update {
                 width: 100%;
                 height: 42px;
@@ -334,14 +340,14 @@ class AppUpdater {
             
             <div class="notice-text">⚠️ 此版本包含重要功能重构，必须完成更新后方可使用</div>
             
-            <button id="btnUpdate" class="btn-update" onclick="document.title = \'DO_UPDATE\'">
+            <button id="btnUpdate" class="btn-update" onclick="document.title = 'DO_UPDATE'">
                 🚀 立即下载并应用更新
             </button>
             
             <div id="statusBox" class="status-box">正在连接更新通道...</div>
         </body>
         </html>
-        '
+        )"
 
         html := StrReplace(htmlTemplate, "{{REMOTE_VER}}", remoteVer)
         html := StrReplace(html, "{{LOCAL_VER}}", localVer)
@@ -352,7 +358,7 @@ class AppUpdater {
         this.doc.write(html)
         this.doc.close()
 
-        ; 居中于主程序上方展现
+        ; 居中显示于主程序上方
         if (this.mainHwnd) {
             WinGetPos(&mx, &my, &mw, &mh, "ahk_id " . this.mainHwnd)
             dx := mx + (mw - 390) // 2
@@ -385,7 +391,7 @@ class AppUpdater {
         }
     }
 
-    ; 执行组件下载与热覆写
+    ; 执行更新与组件覆写
     static PerformUpdate(remoteVer, fileList) {
         if (this.isUpdating)
             return

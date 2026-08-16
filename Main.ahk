@@ -8,6 +8,20 @@ Persistent(true)
 #Include Updater.ahk
 
 ; ==============================================================================
+; 系统托盘图标与菜单配置
+; ==============================================================================
+InitTrayMenu() {
+    A_IconTip := "AI 智能打字翻译"
+    tray := A_TrayMenu
+    tray.Delete() ; 清空默认菜单项
+    tray.Add("🖥️ 打开设置中心", (*) => SettingsUI.Show())
+    tray.Add("🔄 检查更新", (*) => AppUpdater.Check(false))
+    tray.Add() ; 分割线
+    tray.Add("❌ 退出程序", (*) => ExitApp())
+    tray.Default := "🖥️ 打开设置中心"
+}
+
+; ==============================================================================
 ; 全局快捷键注册与动态绑定
 ; ==============================================================================
 RegisterAllHotkeys() {
@@ -39,14 +53,13 @@ RegisterAllHotkeys() {
     }
 }
 
-; 注册设置变更回调
+; 初始化托盘菜单与快捷键
+InitTrayMenu()
 SettingsUI.onHotkeysUpdatedCallback := RegisterAllHotkeys
-
-; 初始化注册全局按键
 RegisterAllHotkeys()
 
 ; 静默检查更新
 AppUpdater.Check(true)
 
-; 启动时直接在前台展示设置中心界面
+; 启动时直接展示设置中心
 SettingsUI.Show()
