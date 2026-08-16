@@ -1,25 +1,19 @@
 #Requires AutoHotkey v2.0
 
 ; ==============================================================================
-; 注册底层窗口消息拦截：锁定拖拽、拦截无效点击并触发更新按钮抖动
+; 注册底层窗口消息拦截：禁止移动、拦截主程序点击与关闭、联动最小化
 ; ==============================================================================
 OnMessage(0x00A1, WM_NCLBUTTONDOWN_LOCK, 2)
 OnMessage(0x0112, WM_SYSCOMMAND_LOCK, 2)
-OnMessage(0x0021, WM_NCHITTEST_LOCK, 2)     
-OnMessage(0x0201, WM_LBUTTONDOWN_LOCK, 2)   
+OnMessage(0x0201, WM_LBUTTONDOWN_LOCK, 2)
 
 WM_NCLBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
     mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
     if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
-        try AppUpdater.TriggerButtonShake()
-        return 0
-    }
-}
-
-WM_NCHITTEST_LOCK(wParam, lParam, msg, hwnd) {
-    mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
-    if (AppUpdater.gui && hwnd == AppUpdater.gui.Hwnd) {
-        return 1 
+        if (wParam == 2) {
+            try AppUpdater.TriggerButtonShake()
+            return 0
+        }
     }
 }
 
@@ -28,17 +22,28 @@ WM_SYSCOMMAND_LOCK(wParam, lParam, msg, hwnd) {
     mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
     
     if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
-        if (cmd == 0xF010 || cmd == 0xF060 || cmd == 0xF020) {
+        if (cmd == 0xF010 || cmd == 0xF060 || cmd == 0xF030) {
             try AppUpdater.TriggerButtonShake()
             return 0
+        }
+
+        if (cmd == 0xF020) {
+            try {
+                if (hwnd == mainHwnd) {
+                    WinMinimize("ahk_id " . AppUpdater.gui.Hwnd)
+                } else if (hwnd == AppUpdater.gui.Hwnd && mainHwnd) {
+                    WinMinimize("ahk_id " . mainHwnd)
+                }
+            }
         }
     }
 }
 
 WM_LBUTTONDOWN_LOCK(wParam, lParam, msg, hwnd) {
     mainHwnd := (IsSet(SettingsUI) && SettingsUI.gui) ? SettingsUI.gui.Hwnd : 0
-    if (AppUpdater.gui && (hwnd == AppUpdater.gui.Hwnd || hwnd == mainHwnd)) {
+    if (AppUpdater.gui && hwnd == mainHwnd) {
         try AppUpdater.TriggerButtonShake()
+        return 0
     }
 }
 
@@ -73,18 +78,20 @@ class AppUpdater {
         }
     }
 
-    ; 优化后的极速检查更新入口（缩短超时时间，实现 1 秒内响应）
     static Check(silent := false) {
+        SetTimer(() => this.AsyncCheck(silent), -50)
+    }
+
+    static AsyncCheck(silent) {
         url := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/version.json?t=" . A_TickCount
         curVer := this.GetCurrentVersion()
         
         try {
             http := ComObject("WinHttp.WinHttpRequest.5.1")
             http.Open("GET", url, true)
-            ; 将连接与响应超时从 2~3 秒大幅压缩至 800ms ~ 1500ms
-            http.SetTimeouts(800, 800, 1200, 1500)
+            http.SetTimeouts(500, 500, 800, 1000)
             http.Send()
-            http.WaitForResponse(1.5) ; 最多等待 1.5 秒，大幅提升弹窗速度
+            http.WaitForResponse(1.0)
             
             if (http.Status != 200) {
                 if (!silent)
@@ -123,7 +130,7 @@ class AppUpdater {
             return
         }
 
-        opt := "-Caption +AlwaysOnTop"
+        opt := "-Caption"
         if (IsSet(SettingsUI) && SettingsUI.gui)
             opt .= " +Owner" . SettingsUI.gui.Hwnd
 
@@ -166,28 +173,44 @@ class AppUpdater {
         }
     }
 
+    ; 实时动态进度下载核心逻辑
     static StartDownload(uGui, doc, files, newVer) {
         if (files.Length == 0) {
-            try doc.parentWindow.setFailed("⚠️ 更新列表中没有待下载的文件")
+            try doc.parentWindow.setProgress(100, "⚠️ 更新列表中没有待下载的文件")
             return
         }
 
+        totalFiles := files.Length
         successCount := 0
+
         for index, fileName in files {
-            try doc.parentWindow.setProgress("正在下载 (" . index . "/" . files.Length . "): " . fileName)
+            percentStart := Round(((index - 1) / totalFiles) * 100)
+            percentEnd := Round((index / totalFiles) * 100)
+            
+            try doc.parentWindow.setProgress(percentStart, "正在下载 (" . index . "/" . totalFiles . "): " . fileName)
+            
             fileUrl := this.rawUrlBase . this.githubUser . "/" . this.githubRepo . "/" . this.branch . "/" . fileName
             localPath := A_ScriptDir . "\" . fileName
 
             try {
                 http := ComObject("WinHttp.WinHttpRequest.5.1")
-                http.Open("GET", fileUrl, false)
+                http.Open("GET", fileUrl, true)
                 http.Send()
+
+                startTime := A_TickCount
+                while (!http.WaitForResponse(0.05)) {
+                    elapsed := A_TickCount - startTime
+                    ; 实时平滑推进子进度，防止假进度或卡死
+                    subProgress := percentStart + Round((percentEnd - percentStart) * Min(elapsed / 1500, 0.9))
+                    try doc.parentWindow.setProgress(subProgress, "正在下载 (" . index . "/" . totalFiles . "): " . fileName)
+                }
 
                 if (http.Status == 200) {
                     fileObj := FileOpen(localPath, "w", "UTF-8")
                     fileObj.Write(http.ResponseText)
                     fileObj.Close()
                     successCount++
+                    try doc.parentWindow.setProgress(percentEnd, "已完成: " . fileName)
                 }
             } catch {
                 continue
@@ -196,7 +219,7 @@ class AppUpdater {
 
         if (successCount > 0) {
             this.SaveCurrentVersion(newVer)
-            try doc.parentWindow.setProgress("✅ 升级至 v" . newVer . " 成功！正在重启...")
+            try doc.parentWindow.setProgress(100, "✅ 升级至 v" . newVer . " 成功！正在重启...")
             Sleep(800)
             uGui.Destroy()
             this.gui := 0
@@ -302,7 +325,7 @@ class AppUpdater {
                 .log-card-container {
                     position: relative;
                     width: 100%;
-                    height: 135px;
+                    height: 125px;
                     background-color: #F8FAFC;
                     border: 1.5px solid #84CC16;
                     border-radius: 10px;
@@ -357,18 +380,42 @@ class AppUpdater {
                     box-shadow: 0 1px 3px rgba(0,0,0,0.12);
                 }
 
+                /* 横向胶囊动态进度条样式 */
+                .progress-container {
+                    margin-top: 4px;
+                    margin-bottom: 4px;
+                }
+                .progress-track {
+                    position: relative;
+                    width: 100%;
+                    height: 10px;
+                    background-color: #D9DCD2;
+                    border-radius: 10px;
+                    overflow: hidden;
+                    margin-bottom: 6px;
+                }
+                .progress-thumb {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    height: 100%;
+                    width: 0%;
+                    background-color: #84CC16;
+                    border-radius: 10px;
+                    transition: width 0.15s ease-out;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+                }
+
                 .tips-text {
                     text-align: center;
                     font-size: 11px;
                     font-weight: 600;
                     color: #64748B;
-                    margin-top: 4px;
-                    margin-bottom: 4px;
                 }
 
                 .btn-download {
                     width: 100%;
-                    height: 42px;
+                    height: 40px;
                     background-color: #D4F658;
                     color: #1A2E05;
                     border: 1px solid #C4EC44;
@@ -380,7 +427,7 @@ class AppUpdater {
                     align-items: center;
                     justify-content: center;
                     transition: all 0.2s ease;
-                    margin-bottom: 4px;
+                    margin-bottom: 2px;
                 }
                 .btn-download:hover {
                     background-color: #C8EA2D;
@@ -419,7 +466,13 @@ class AppUpdater {
                     </div>
                 </div>
 
-                <div class="tips-text" id="tipsText">发现新功能特性，建议立即更新体验</div>
+                <div class="progress-container">
+                    <div class="progress-track">
+                        <div class="progress-thumb" id="progressThumb" style="width: 0%;"></div>
+                    </div>
+                    <div class="tips-text" id="tipsText">发现新功能特性，建议立即更新体验</div>
+                </div>
+
                 <button class="btn-download" id="btnUpdate" onclick="triggerDownload()">🚀 立即下载并应用更新</button>
             </div>
 
@@ -459,9 +512,15 @@ class AppUpdater {
                     window.ahk_download();
                 }
 
-                function setProgress(msg) {
+                function setProgress(percent, msg) {
+                    var thumb = document.getElementById("progressThumb");
+                    if (thumb) {
+                        thumb.style.width = percent + "%";
+                    }
                     var tip = document.getElementById("tipsText");
-                    if (tip) tip.innerText = msg;
+                    if (tip) {
+                        tip.innerText = msg;
+                    }
                 }
 
                 function setFailed(msg) {
