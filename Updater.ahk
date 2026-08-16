@@ -7,6 +7,7 @@ class AppUpdater {
     static versionFile := A_ScriptDir . "\version.txt"
     static gui := 0
     static isUpdating := false
+    static isRequired := true ; 强制更新模式
 
     ; 获取本地版本号
     static GetLocalVersion() {
@@ -40,7 +41,7 @@ class AppUpdater {
         return 0
     }
 
-    ; 发起 HTTP 请求 (带防缓存机制)
+    ; 防缓存 HTTP 请求
     static FetchText(url) {
         reqUrl := url . (InStr(url, "?") ? "&" : "?") . "_t=" . A_TickCount
         try {
@@ -58,15 +59,32 @@ class AppUpdater {
         return ""
     }
 
+    ; 供主界面拦截调用的窗口抖动提醒方法 (修复报错 Bug 2)
+    static ShakeModal() {
+        if (!this.gui || !WinExist("ahk_id " . this.gui.Hwnd))
+            return
+        
+        try {
+            WinActivate("ahk_id " . this.gui.Hwnd)
+            this.gui.GetPos(&gx, &gy, &gw, &gh)
+            Loop 2 {
+                this.gui.Move(gx - 8, gy)
+                Sleep 25
+                this.gui.Move(gx + 8, gy)
+                Sleep 25
+            }
+            this.gui.Move(gx, gy)
+        }
+    }
+
     ; 检查更新入口
     static Check(isSilent := false) {
-        SetTimer(() => this._DoCheck(isSilent), -200)
+        SetTimer(() => this._DoCheck(isSilent), -150)
     }
 
     static _DoCheck(isSilent) {
         localVer := this.GetLocalVersion()
         
-        ; 优先通过加速代理请求，失败则直连
         jsonStr := this.FetchText(this.rawBaseUrl . "/version.json")
         if (jsonStr == "") {
             jsonStr := this.FetchText(this.directRawUrl . "/version.json")
@@ -74,15 +92,13 @@ class AppUpdater {
 
         if (jsonStr == "") {
             if (!isSilent)
-                MsgBox("无法连接到更新服务器，请检查网络连接。", "检查更新失败", "Iconx")
+                MsgBox("无法连接到更新服务器，请检查网络。", "检查更新失败", "Iconx")
             return
         }
 
-        ; 解析 version.json
         remoteVer := RegExMatch(jsonStr, '"version"\s*:\s*"([^"]+)"', &mVer) ? mVer[1] : ""
-        changelog := RegExMatch(jsonStr, 's)"changelog"\s*:\s*"([^"]*)"', &mLog) ? mLog[1] : "性能优化与问题修复。"
+        changelog := RegExMatch(jsonStr, 's)"changelog"\s*:\s*"([^"]*)"', &mLog) ? mLog[1] : "系统性能优化与稳定性提升。"
         
-        ; 解析待更新文件列表
         fileList := []
         if RegExMatch(jsonStr, 's)"files"\s*:\s*\[(.*?)\]', &mFiles) {
             filesBlock := mFiles[1]
@@ -97,11 +113,9 @@ class AppUpdater {
             fileList := ["AI_Translate.ahk", "Float_Bar.ahk", "Main.ahk", "Settings_UI.ahk", "Updater.ahk"]
         }
 
-        ; 反转义换行符
         changelog := StrReplace(changelog, "\n", "`r`n")
         changelog := StrReplace(changelog, '\"', '"')
 
-        ; 比对版本
         if (remoteVer != "" && this.CompareVersions(remoteVer, localVer) > 0) {
             this.ShowUpdateDialog(remoteVer, localVer, changelog, fileList)
         } else if (!isSilent) {
@@ -109,57 +123,61 @@ class AppUpdater {
         }
     }
 
-    ; 展示更新弹窗 (+AlwaysOnTop 强制置顶于主界面之上)
+    ; 现代 UI 弹窗设计 (无关闭按钮 + 强模态锁定 + 统一配色)
     static ShowUpdateDialog(remoteVer, localVer, changelog, fileList) {
         if (this.gui && WinExist("ahk_id " . this.gui.Hwnd)) {
-            WinActivate("ahk_id " . this.gui.Hwnd)
+            this.ShakeModal()
             return
         }
 
-        ; 核心修复：添加 +AlwaysOnTop 和 +OwnDialogs 确保窗口始终位于顶层最前端
-        g := Gui("+AlwaysOnTop +OwnDialogs -MaximizeBox -MinimizeBox", "发现新版本")
-        g.BackColor := "0xFFFFFF"
+        ; -SysMenu 去除右上角 X 关闭按钮，+AlwaysOnTop 强制最前
+        g := Gui("+AlwaysOnTop +OwnDialogs -MaximizeBox -MinimizeBox -SysMenu", "系统更新")
+        g.BackColor := "0xF8FAF5"
         g.MarginX := 24
         g.MarginY := 20
         this.gui := g
 
-        ; 标题区域
-        g.SetFont("s15 bold c0x0F80E6", "Microsoft YaHei UI")
-        g.Add("Text", "w380", "🚀 发现新版本")
+        ; 头部：Logo / 胶囊徽章
+        g.SetFont("s10 bold c0x18181B", "Microsoft YaHei UI")
+        g.Add("Text", "w360", "⚡ LIVE INTELLIGENT UPDATER")
 
-        g.SetFont("s10 bold c0x22C55E", "Microsoft YaHei UI")
-        txtVer := g.Add("Text", "w380 y+4", "v" . remoteVer . "  ")
+        g.SetFont("s15 bold c0x0F172A", "Microsoft YaHei UI")
+        g.Add("Text", "w360 y+4", "发现新版本可用")
+
+        ; 版本对比横向信息栏 (避免换行截断)
+        g.SetFont("s10 bold c0x15803D", "Microsoft YaHei UI")
+        vText := "v" . remoteVer . "  "
+        g.Add("Text", "y+6", vText)
         g.SetFont("s9 norm c0x64748B", "Microsoft YaHei UI")
-        txtSub := g.Add("Text", "x+0 yp", "(当前版本: v" . localVer . ")")
+        g.Add("Text", "x+0 yp", "(当前版本: v" . localVer . ")")
 
-        ; 更新日志区域
-        g.SetFont("s10 bold c0x1E293B", "Microsoft YaHei UI")
-        g.Add("Text", "x24 y+18 w380", "📜 更新内容")
+        ; 更新内容说明框
+        g.SetFont("s9 bold c0x334155", "Microsoft YaHei UI")
+        g.Add("Text", "x24 y+14 w360", "📦 更新日志与功能变更：")
 
-        g.SetFont("s9 norm c0x334155", "Microsoft YaHei UI")
-        edtLog := g.Add("Edit", "x24 y+8 w380 r5 ReadOnly -E0x200 +Border Background0xFAFAFA", changelog)
+        g.SetFont("s9 norm c0x1E293B", "Microsoft YaHei UI")
+        edtLog := g.Add("Edit", "x24 y+6 w360 r5 ReadOnly -E0x200 +Border Background0xFFFFFF", changelog)
 
-        ; 底部提示
+        ; 底部强制更新提醒
         g.SetFont("s8 norm c0x94A3B8", "Microsoft YaHei UI")
-        g.Add("Text", "x24 y+14 w380 Center", "为保障系统稳定性，建议立即更新体验")
+        g.Add("Text", "x24 y+12 w360 Center", "⚠️ 此版本包含重要功能重构，必须完成更新后方可使用")
 
-        ; 更新按钮
-        g.SetFont("s10 bold c0x052e16", "Microsoft YaHei UI")
-        btnUpdate := g.Add("Button", "x24 y+10 w380 h42 Default Background0x86EFAC", "🚀 立即下载并更新")
+        ; 主按钮 (黑底配合荧光绿文字，与主界面 [检测 API 有效性] 风格一致)
+        g.SetFont("s10 bold c0xD8FA63", "Microsoft YaHei UI")
+        btnUpdate := g.Add("Button", "x24 y+10 w360 h44 Default Background0x18181B", "🚀 立即下载并应用更新")
         
         ; 状态文本
-        txtStatus := g.Add("Text", "x24 y+8 w380 Center Hidden c0x0F80E6", "正在高速下载更新组件...")
+        txtStatus := g.Add("Text", "x24 y+8 w360 Center Hidden c0x0F80E6", "正在下载核心组件...")
 
         btnUpdate.OnEvent("Click", (*) => this.PerformUpdate(btnUpdate, txtStatus, remoteVer, fileList))
-        g.OnEvent("Close", (*) => g.Destroy())
 
-        ; 居中显示并强行置顶激活
-        g.Show("w428 Center")
+        ; 显示并居中置顶
+        g.Show("w408 Center")
         WinSetAlwaysOnTop(1, "ahk_id " . g.Hwnd)
         WinActivate("ahk_id " . g.Hwnd)
     }
 
-    ; 执行组件下载覆盖
+    ; 执行更新与组件覆写
     static PerformUpdate(btn, txtStatus, remoteVer, fileList) {
         if (this.isUpdating)
             return
@@ -175,7 +193,7 @@ class AppUpdater {
             DirCreate(tempDir)
 
         for idx, fileName in fileList {
-            txtStatus.Text := "正在下载组件 (" . idx . "/" . fileList.Length . "): " . fileName
+            txtStatus.Text := "正在同步组件 (" . idx . "/" . fileList.Length . "): " . fileName
             
             fileUrl := this.rawBaseUrl . "/" . fileName
             fileContent := this.FetchText(fileUrl)
@@ -220,10 +238,10 @@ class AppUpdater {
             try DirDelete(tempDir, 1)
 
             txtStatus.SetFont("c0x16A34A")
-            txtStatus.Text := "✅ 更新完成！正在为您重新加载程序..."
-            Sleep(1000)
+            txtStatus.Text := "✅ 更新成功！正在重新启动程序..."
+            Sleep(800)
 
-            ; 自动重启程序
+            ; 自动重新加载程序
             if A_IsCompiled {
                 Run('"' . A_ScriptFullPath . '"')
             } else {
@@ -234,7 +252,7 @@ class AppUpdater {
             this.isUpdating := false
             btn.Visible := true
             txtStatus.SetFont("c0xDC2626")
-            txtStatus.Text := "❌ 部分文件下载失败，请检查网络后重试"
+            txtStatus.Text := "❌ 部分组件下载失败，请检查网络后重试"
         }
     }
 }
