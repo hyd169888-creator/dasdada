@@ -1,9 +1,11 @@
 {
   "version": "2.0.5",
-  "changelog": "1. ⚡ 修复悬浮翻译框调用报错问题。\n2. 🖥️ 优化软件启动逻辑，启动时直接呼出设置中心。",
+  "changelog": "1. ⚡ 修复悬浮翻译框调用报错问题。\n2. 🖥️ 优化启动逻辑，直接呼出设置中心。",
   "files": [
     "AI_Translate.ahk",
+    "Float_Bar.ahk",
     "Main.ahk",
-    "Settings_UI.ahk"
+    "Settings_UI.ahk",
+    "Updater.ahk"
   ]
 }
