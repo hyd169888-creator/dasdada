@@ -223,7 +223,7 @@ class AppUpdater {
 
         safeLog := this.HtmlEscape(changelog)
 
-        ; HTML 模板（已将 .badge-container 与 .badge-wrap 设置为居中居中）
+        ; HTML 模板（内置右侧青绿专属滚动条）
         htmlTemplate := "
         (
         <!DOCTYPE html>
@@ -246,7 +246,6 @@ class AppUpdater {
                 overflow: hidden;
                 color: #18181B;
             }
-            /* 居中徽章容器 */
             .badge-container {
                 display: flex;
                 justify-content: center;
@@ -292,33 +291,50 @@ class AppUpdater {
                 margin-top: 12px;
                 margin-bottom: 6px;
             }
-            /* 内部右侧青绿细滚动条 */
-            .log-box {
+            /* 外部容器：内置右侧精准定位的青绿滚动条 */
+            .log-box-wrapper {
+                position: relative;
                 background: #FFFFFF;
                 border: 1.5px solid #E2E8F0;
                 border-radius: 10px;
+                height: 116px;
                 padding: 10px 12px;
-                height: 110px;
-                overflow-y: auto;
+                overflow: hidden;
+            }
+            .log-content {
+                height: 100%;
+                width: 100%;
+                padding-right: 14px;
+                overflow-y: hidden;
                 font-size: 12px;
                 line-height: 1.6;
                 color: #334155;
                 white-space: pre-wrap;
                 word-break: break-all;
-                scrollbar-face-color: #84cc16;
-                scrollbar-track-color: #F8FAF5;
-                scrollbar-width: thin;
-                scrollbar-color: #84cc16 #F8FAF5;
             }
-            .log-box::-webkit-scrollbar {
+            /* 1:1 还原主程序语言下拉框的青绿滚动条组件 */
+            .custom-scrollbar-track {
+                position: absolute;
+                top: 8px;
+                bottom: 8px;
+                right: 6px;
                 width: 5px;
+                background: #F1F5F9;
+                border-radius: 4px;
             }
-            .log-box::-webkit-scrollbar-track {
-                background: transparent;
-            }
-            .log-box::-webkit-scrollbar-thumb {
+            .custom-scrollbar-thumb {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 36px;
                 background: #84cc16;
                 border-radius: 4px;
+                cursor: pointer;
+                transition: background 0.15s;
+            }
+            .custom-scrollbar-thumb:hover {
+                background: #65a30d;
             }
             .notice-text {
                 font-size: 11px;
@@ -326,7 +342,7 @@ class AppUpdater {
                 text-align: center;
                 margin-top: 12px;
             }
-            /* 荧光绿主操作按钮 (与主程序[保存并生效]同款) */
+            /* 荧光绿主操作按钮 */
             .btn-update {
                 width: 100%;
                 height: 42px;
@@ -368,7 +384,12 @@ class AppUpdater {
             </div>
             
             <div class="section-label">📦 更新日志与功能变更：</div>
-            <div class="log-box">{{SAFE_LOG}}</div>
+            <div class="log-box-wrapper" id="logWrapper">
+                <div class="log-content" id="logContent">{{SAFE_LOG}}</div>
+                <div class="custom-scrollbar-track" id="scrollTrack">
+                    <div class="custom-scrollbar-thumb" id="scrollThumb"></div>
+                </div>
+            </div>
             
             <div class="notice-text">⚠️ 此版本包含重要功能重构，必须完成更新后方可使用</div>
             
@@ -377,6 +398,81 @@ class AppUpdater {
             </button>
             
             <div id="statusBox" class="status-box">正在连接更新通道...</div>
+
+            <script>
+                function initScroll() {
+                    var content = document.getElementById('logContent');
+                    var track = document.getElementById('scrollTrack');
+                    var thumb = document.getElementById('scrollThumb');
+                    var wrapper = document.getElementById('logWrapper');
+                    if (!content || !track || !thumb || !wrapper) return;
+
+                    function updateThumb() {
+                        var scrollRatio = content.clientHeight / content.scrollHeight;
+                        if (scrollRatio >= 1) {
+                            thumb.style.height = '100%';
+                            thumb.style.top = '0px';
+                        } else {
+                            var trackH = track.clientHeight;
+                            var thumbH = Math.max(24, trackH * scrollRatio);
+                            thumb.style.height = thumbH + 'px';
+                            var maxTop = trackH - thumbH;
+                            var curTop = (content.scrollTop / (content.scrollHeight - content.clientHeight)) * maxTop;
+                            thumb.style.top = Math.min(Math.max(0, curTop), maxTop) + 'px';
+                        }
+                    }
+
+                    function onWheel(e) {
+                        e = e || window.event;
+                        var delta = e.deltaY !== undefined ? e.deltaY : (e.wheelDelta ? -e.wheelDelta : 0);
+                        content.scrollTop += (delta > 0 ? 25 : -25);
+                        updateThumb();
+                        if (e.preventDefault) e.preventDefault();
+                        return false;
+                    }
+
+                    if (wrapper.addEventListener) {
+                        wrapper.addEventListener('wheel', onWheel, false);
+                        wrapper.addEventListener('mousewheel', onWheel, false);
+                        wrapper.addEventListener('DOMMouseScroll', onWheel, false);
+                    } else {
+                        wrapper.attachEvent('onmousewheel', onWheel);
+                    }
+
+                    var isDragging = false;
+                    var startY = 0;
+                    var startTop = 0;
+
+                    thumb.onmousedown = function(e) {
+                        e = e || window.event;
+                        isDragging = true;
+                        startY = e.clientY;
+                        startTop = parseInt(thumb.style.top || 0);
+                        document.onmousemove = function(e) {
+                            if (!isDragging) return;
+                            e = e || window.event;
+                            var delta = e.clientY - startY;
+                            var trackH = track.clientHeight;
+                            var thumbH = thumb.offsetHeight;
+                            var maxTop = trackH - thumbH;
+                            var newTop = Math.min(Math.max(0, startTop + delta), maxTop);
+                            thumb.style.top = newTop + 'px';
+                            var pct = maxTop > 0 ? (newTop / maxTop) : 0;
+                            content.scrollTop = pct * (content.scrollHeight - content.clientHeight);
+                        };
+                        document.onmouseup = function() {
+                            isDragging = false;
+                            document.onmousemove = null;
+                            document.onmouseup = null;
+                        };
+                        return false;
+                    };
+
+                    updateThumb();
+                    setTimeout(updateThumb, 120);
+                }
+                window.onload = initScroll;
+            </script>
         </body>
         </html>
         )"
