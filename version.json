@@ -1,11 +1,7 @@
 {
-  "version": "2.0.7",
-  "changelog": "1. ⚡ 修复悬浮翻译框调用报错与结构解析问题。\n2. 🖥️ 优化启动生命周期，主界面渲染后毫秒级弹出更新。\n3. 🔒 强化更新模态锁定机制，杜绝未更新绕过使用。\n4. 🎨 统一更新弹窗视觉风格为荧光绿极简质感。\n5. 📜 弹窗内容框内置专属青绿细长滚动条与滚轮支持。\n6. 🌐 新增波兰语（Polish）地道翻译引擎支持。\n7. 🚀 全面升级 Loader 动态引导热更新架构。",
+  "version": "2.0.9",
+  "changelog": "1. ⚡ 更新测试：新增并同步 cs.txt 配置文件。",
   "files": [
-    "AI_Translate.ahk",
-    "Float_Bar.ahk",
-    "Main.ahk",
-    "Settings_UI.ahk",
-    "Updater.ahk"
+    "cs.txt"
   ]
 }
