@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent(true)
 
@@ -768,11 +768,115 @@ class SettingsUI {
                     color: rgba(255, 255, 255, 0.75);
                 }
 
+                /* =========================================================
+                   自定义风格删除确认模态框 (Confirm Modal - 视觉优化)
+                   ========================================================= */
+                .confirm-modal-overlay {
+                    position: fixed;
+                    top: 0;
+                    left: 0;
+                    right: 0;
+                    bottom: 0;
+                    background: rgba(24, 24, 27, 0.45);
+                    -webkit-backdrop-filter: blur(8px);
+                    backdrop-filter: blur(8px);
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 9999999;
+                }
+                .confirm-modal-box {
+                    width: 340px;
+                    background: #FFFFFF;
+                    border-radius: 16px;
+                    border: 1.5px solid #E3E4DC;
+                    padding: 24px 22px;
+                    box-shadow: 0 20px 48px rgba(0, 0, 0, 0.22);
+                    text-align: center;
+                    animation: popIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                @keyframes popIn {
+                    0% { transform: scale(0.92); opacity: 0; }
+                    100% { transform: scale(1); opacity: 1; }
+                }
+                .confirm-icon {
+                    width: 46px;
+                    height: 46px;
+                    line-height: 46px;
+                    background: #FEE2E2;
+                    color: #EF4444;
+                    border-radius: 50%;
+                    font-size: 22px;
+                    margin: 0 auto 12px auto;
+                }
+                .confirm-title {
+                    font-size: 16.5px;
+                    font-weight: 800;
+                    color: #18181B;
+                    margin-bottom: 6px;
+                }
+                .confirm-desc {
+                    font-size: 12.5px;
+                    color: #52525B;
+                    line-height: 1.55;
+                    margin-bottom: 20px;
+                    word-break: break-all;
+                }
+                .confirm-desc b {
+                    color: #18181B;
+                }
+                .confirm-actions {
+                    display: flex;
+                    gap: 16px; /* 增加左右按键间距 */
+                }
+                .confirm-btn {
+                    flex: 1;
+                    height: 40px;
+                    border-radius: 10px;
+                    font-size: 13.5px;
+                    font-weight: 800;
+                    cursor: pointer;
+                    border: none;
+                    transition: all 0.2s ease;
+                }
+                /* 取消按钮：黑色背景 + 白色文字 */
+                .confirm-btn-cancel {
+                    background: #18181B;
+                    color: #FFFFFF;
+                }
+                .confirm-btn-cancel:hover {
+                    background: #27272A;
+                    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+                }
+                /* 确认删除按钮：品牌荧光绿底色 + 黑色文字 */
+                .confirm-btn-danger {
+                    background: #D8FA63;
+                    color: #18181B;
+                    border: 1px solid #C4EC44;
+                }
+                .confirm-btn-danger:hover {
+                    background: #C8EA2D;
+                    box-shadow: 0 3px 10px rgba(216, 250, 99, 0.45);
+                }
+
                 .page-section { display: none; }
                 .page-section.active { display: block; }
             </style>
         </head>
         <body>
+            <!-- 风格化删除确认模态框 -->
+            <div id="customConfirmModal" class="confirm-modal-overlay">
+                <div class="confirm-modal-box">
+                    <div class="confirm-icon">🗑️</div>
+                    <div class="confirm-title">删除自定义模型</div>
+                    <div class="confirm-desc" id="confirmModalText">确定要删除该模型配置吗？</div>
+                    <div class="confirm-actions">
+                        <button class="confirm-btn confirm-btn-cancel" onclick="closeCustomConfirm(false)">取消</button>
+                        <button class="confirm-btn confirm-btn-danger" onclick="closeCustomConfirm(true)">确认删除</button>
+                    </div>
+                </div>
+            </div>
+
             <div id="centerModalToast">
                 <div class="toast-icon" id="toastIcon">✓</div>
                 <div class="toast-title" id="toastTitle">配置保存成功</div>
@@ -1015,6 +1119,7 @@ class SettingsUI {
                 };
 
                 var toastTimer = null;
+                var g_pendingDeleteKey = null;
 
                 function renderProviderOptions() {
                     var vp = document.getElementById("providerViewport");
@@ -1059,19 +1164,36 @@ class SettingsUI {
                     updateStatusText("已创建新自定义配置项，请修改昵称及接口参数后保存。");
                 }
 
+                /* 自定义 UI 风格的删除确认模态框交互 */
                 function deleteCustomProvider(e, key) {
                     if (e) e.stopPropagation();
-                    if (!confirm("确定要删除自定义模型【" + (g_allConfigs[key].custom_name || key) + "】吗？"))
-                        return;
-
-                    delete g_allConfigs[key];
-                    if (g_currentProvider === key) {
-                        g_currentProvider = "DeepSeek";
+                    closeAllDropdowns();
+                    g_pendingDeleteKey = key;
+                    var name = (g_allConfigs[key] && g_allConfigs[key].custom_name) ? g_allConfigs[key].custom_name : key;
+                    
+                    var descEl = document.getElementById("confirmModalText");
+                    if (descEl) {
+                        descEl.innerHTML = "确定要删除自定义模型 <b>【" + name + "】</b> 吗？<br>删除后不可恢复。";
                     }
-                    renderProviderOptions();
-                    setCustomSelectValue("select-provider", g_currentProvider);
-                    renderCurrentForm();
-                    showCenterToast("已成功删除模型配置", false);
+                    var modal = document.getElementById("customConfirmModal");
+                    if (modal) modal.style.display = "flex";
+                }
+
+                function closeCustomConfirm(confirmed) {
+                    var modal = document.getElementById("customConfirmModal");
+                    if (modal) modal.style.display = "none";
+
+                    if (confirmed && g_pendingDeleteKey && g_allConfigs[g_pendingDeleteKey]) {
+                        delete g_allConfigs[g_pendingDeleteKey];
+                        if (g_currentProvider === g_pendingDeleteKey) {
+                            g_currentProvider = "DeepSeek";
+                        }
+                        renderProviderOptions();
+                        setCustomSelectValue("select-provider", g_currentProvider);
+                        renderCurrentForm();
+                        showCenterToast("已成功删除模型配置", false);
+                    }
+                    g_pendingDeleteKey = null;
                 }
 
                 function switchTab(tabName) {
