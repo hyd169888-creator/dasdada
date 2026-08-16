@@ -768,9 +768,6 @@ class SettingsUI {
                     color: rgba(255, 255, 255, 0.75);
                 }
 
-                /* =========================================================
-                   自定义风格删除确认模态框 (Confirm Modal - 视觉优化)
-                   ========================================================= */
                 .confirm-modal-overlay {
                     position: fixed;
                     top: 0;
@@ -827,7 +824,7 @@ class SettingsUI {
                 }
                 .confirm-actions {
                     display: flex;
-                    gap: 16px; /* 增加左右按键间距 */
+                    gap: 16px;
                 }
                 .confirm-btn {
                     flex: 1;
@@ -839,7 +836,6 @@ class SettingsUI {
                     border: none;
                     transition: all 0.2s ease;
                 }
-                /* 取消按钮：黑色背景 + 白色文字 */
                 .confirm-btn-cancel {
                     background: #18181B;
                     color: #FFFFFF;
@@ -848,7 +844,6 @@ class SettingsUI {
                     background: #27272A;
                     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
                 }
-                /* 确认删除按钮：品牌荧光绿底色 + 黑色文字 */
                 .confirm-btn-danger {
                     background: #D8FA63;
                     color: #18181B;
@@ -927,6 +922,7 @@ class SettingsUI {
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-sourceLang', 'fr', 'Français (法语)')">Français (法语)</div>
                                             <div class="select-option" data-value="de" onclick="selectOption('select-sourceLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
                                             <div class="select-option" data-value="ru" onclick="selectOption('select-sourceLang', 'ru', 'Русский (俄语)')">Русский (俄语)</div>
+                                            <div class="select-option" data-value="pl" onclick="selectOption('select-sourceLang', 'pl', 'Polski (波兰语)')">Polski (波兰语)</div>
                                         </div>
                                     </div>
                                 </div>
@@ -952,6 +948,7 @@ class SettingsUI {
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-targetLang', 'fr', 'Français (法语)')">Français (法语)</div>
                                             <div class="select-option" data-value="de" onclick="selectOption('select-targetLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
                                             <div class="select-option" data-value="ru" onclick="selectOption('select-targetLang', 'ru', 'Русский (俄语)')">Русский (俄语)</div>
+                                            <div class="select-option" data-value="pl" onclick="selectOption('select-targetLang', 'pl', 'Polski (波兰语)')">Polski (波兰语)</div>
                                         </div>
                                     </div>
                                 </div>
@@ -980,7 +977,6 @@ class SettingsUI {
                             </div>
                         </div>
 
-                        <!-- 动态别名输入框（仅自定义项目显示） -->
                         <div class="form-row" id="rowCustomName" style="display: none;">
                             <div class="form-label">平台昵称</div>
                             <div class="form-field">
@@ -1164,7 +1160,6 @@ class SettingsUI {
                     updateStatusText("已创建新自定义配置项，请修改昵称及接口参数后保存。");
                 }
 
-                /* 自定义 UI 风格的删除确认模态框交互 */
                 function deleteCustomProvider(e, key) {
                     if (e) e.stopPropagation();
                     closeAllDropdowns();
