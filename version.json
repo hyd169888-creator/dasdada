@@ -1,5 +1,5 @@
 {
-    "version": "2.10.0",
+    "version": "2.0.9",
     "changelog": "1. 🛠️ 修复悬浮窗 Tab 切换模型时无法识别及显示动态添加的自定义 API / 模型昵称的 Bug。\n2. ✨ 完美支持实时轮换与加载所有自定义大模型引擎。",
     "files": [
         "AI_Translate.ahk",
