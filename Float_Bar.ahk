@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #Include Settings_UI.ahk
 #Include AI_Translate.ahk
 
@@ -25,22 +25,62 @@ class FloatBar {
     static hotkeysRegistered := false
     static lastActiveHwnd := 0
     
-    ; 全量支持轮换的 6 大模型列表
-    static providerList := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao", "Custom"]
     static currentProvider := "DeepSeek"
 
-    ; 与设置中心完全统一的模型全称映射表
-    static providerTitles := Map(
-        "DeepSeek", "DeepSeek（官方直连·深度思考）",
-        "Gemini", "Gemini（需魔法）",
-        "OpenAI", "ChatGPT（需魔法）",
-        "NVIDIA", "NVIDIA·免费满血模型（需魔法）",
-        "Doubao", "豆包(ByteDance)",
-        "Custom", "自定义API(OpenAI 协议兼容）"
-    )
+    ; ==========================================================================
+    ; 动态获取当前所有可用的模型列表及名称映射（支持内置 + 用户动态添加的自定义模型）
+    ; ==========================================================================
+    static GetDynamicProviders() {
+        cfg := SettingsUI.LoadConfig()
+        
+        ; 默认内置模型列表与标准全称映射
+        list := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao"]
+        titles := Map(
+            "DeepSeek", "DeepSeek（官方直连·深度思考）",
+            "Gemini", "Gemini（需魔法）",
+            "OpenAI", "ChatGPT（需魔法）",
+            "NVIDIA", "NVIDIA·免费满血模型（需魔法）",
+            "Doubao", "豆包(ByteDance)"
+        )
+        
+        ; 动态从配置中读取所有自定义添加的 API / 模型
+        if (cfg.Has("providers") && IsObject(cfg["providers"])) {
+            for pKey, pVal in cfg["providers"] {
+                ; 如果不是内置模型，则视作自定义添加的模型
+                if (!titles.Has(pKey)) {
+                    displayName := pKey
+                    if (IsObject(pVal)) {
+                        if (pVal.Has("platform_nickname") && pVal["platform_nickname"] != "") {
+                            displayName := pVal["platform_nickname"]
+                        } else if (pVal.Has("name") && pVal["name"] != "") {
+                            displayName := pVal["name"]
+                        } else if (pVal.Has("nickname") && pVal["nickname"] != "") {
+                            displayName := pVal["nickname"]
+                        }
+                    }
+                    titles[pKey] := displayName
+                    
+                    ; 避免重复加入轮换列表
+                    found := false
+                    for existingKey in list {
+                        if (existingKey == pKey) {
+                            found := true
+                            break
+                        }
+                    }
+                    if (!found) {
+                        list.Push(pKey)
+                    }
+                }
+            }
+        }
+        
+        return { list: list, titles: titles }
+    }
 
     static GetProviderTitle(key) {
-        return this.providerTitles.Has(key) ? this.providerTitles[key] : key
+        data := this.GetDynamicProviders()
+        return data.titles.Has(key) ? data.titles[key] : key
     }
 
     static Create() {
@@ -130,7 +170,6 @@ class FloatBar {
                         screenCaretY := NumGet(pt, 4, "int")
 
                         if (screenCaretX > 0 && screenCaretY > 0) {
-                            ; 左下角对齐：左边 X = 光标 X，顶部 Y = 光标 Y - 窗口高度 - 间隙
                             targetX := screenCaretX
                             targetY := screenCaretY - barH - gap
                             hasCaret := true
@@ -152,7 +191,6 @@ class FloatBar {
         screenWidth := A_ScreenWidth
         screenHeight := A_ScreenHeight
 
-        ; 水平防越界
         if (targetX + barW > screenWidth - 15) {
             targetX := screenWidth - barW - 15
         }
@@ -160,7 +198,6 @@ class FloatBar {
             targetX := 15
         }
 
-        ; 垂直防越界：若顶部放不下，自动翻转至下方
         if (targetY < 20) {
             targetY := (hasCaret ? (screenCaretY + 30) : (mY + 25))
         }
@@ -184,11 +221,23 @@ class FloatBar {
             this.currentProvider := cfg["current_provider"]
         }
         
+        ; 校验当前 provider 是否在动态可用列表中，若不在则默认切到第一个
+        data := this.GetDynamicProviders()
+        found := false
+        for p in data.list {
+            if (p == this.currentProvider) {
+                found := true
+                break
+            }
+        }
+        if (!found && data.list.Length > 0) {
+            this.currentProvider := data.list[1]
+        }
+        
         this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
         this.editInput.Value := ""
         this.textResult.Text := "等待输入..."
 
-        ; 动态计算就近左下角对齐坐标
         pos := this.CalculateSmartPosition(480, 155)
         this.gui.Show("x" . pos.x . " y" . pos.y . " w480 h155")
 
@@ -262,16 +311,22 @@ class FloatBar {
     }
 
     static SwitchNextProvider() {
+        data := this.GetDynamicProviders()
+        providerList := data.list
+        
+        if (providerList.Length == 0)
+            return
+
         currIdx := 1
-        for idx, p in this.providerList {
+        for idx, p in providerList {
             if (StrCompare(p, this.currentProvider, false) == 0) {
                 currIdx := idx
                 break
             }
         }
         
-        nextIdx := (currIdx >= this.providerList.Length) ? 1 : currIdx + 1
-        this.currentProvider := this.providerList[nextIdx]
+        nextIdx := (currIdx >= providerList.Length) ? 1 : currIdx + 1
+        this.currentProvider := providerList[nextIdx]
         
         this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
 
