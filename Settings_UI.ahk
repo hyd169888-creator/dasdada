@@ -345,8 +345,7 @@ class SettingsUI {
                 "NVIDIA", Map("base_url", "https://integrate.api.nvidia.com/v1", "model", "meta/llama-3.1-8b-instruct", "api_key", ""),
                 "Qwen", Map("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1", "model", "qwen-plus", "api_key", ""),
                 "DeepSeek", Map("base_url", "https://api.deepseek.com/v1", "model", "deepseek-chat", "api_key", ""),
-                "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", ""),
-                "Custom", Map("base_url", "https://tokenrhythm.studio/v1", "model", "deepseek-v4-flash", "api_key", "", "is_custom", true, "custom_name", "自定义API(默认)")
+                "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", "")
             ),
             "hotkeys", Map(
                 "show_bar", "!y",
@@ -369,7 +368,7 @@ class SettingsUI {
             if (RegExMatch(content, '"target_lang"\s*:\s*"([^"]+)"', &t))
                 defaultMap["target_lang"] := t[1]
 
-            ; 读取所有 Provider (双向兼容 custom_name 与 platform_nickname)
+            ; 读取所有 Provider
             if RegExMatch(content, 's)"providers"\s*:\s*\{(.*)\}\s*,\s*"hotkeys"', &pBlock) {
                 pContent := pBlock[1]
                 pos := 1
@@ -452,6 +451,7 @@ class SettingsUI {
                     border: 1px solid #E3E4DC; 
                     box-shadow: 0 1px 3px rgba(0,0,0,0.02);
                     position: relative;
+                    overflow: visible !important;
                 }
                 .card-header { font-size: 11.5px; font-weight: 800; letter-spacing: 0.6px; color: #71717A; text-transform: uppercase; margin-bottom: 9px; }
 
@@ -491,6 +491,8 @@ class SettingsUI {
                     position: relative;
                     width: 100%;
                     user-select: none;
+                    cursor: pointer;
+                    z-index: 100;
                 }
                 
                 .select-trigger {
@@ -519,6 +521,7 @@ class SettingsUI {
                     overflow: hidden;
                     text-overflow: ellipsis;
                     padding-right: 8px;
+                    pointer-events: none;
                 }
 
                 .select-arrow {
@@ -531,6 +534,7 @@ class SettingsUI {
                     stroke-linecap: round;
                     stroke-linejoin: round;
                     transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+                    pointer-events: none;
                 }
                 .custom-select.open .select-arrow {
                     transform: rotate(180deg);
@@ -545,9 +549,9 @@ class SettingsUI {
                     background-color: #F3F4EE !important;
                     border: 1.5px solid #84CC16 !important;
                     border-radius: 11px;
-                    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.1), 0 4px 10px rgba(0, 0, 0, 0.04);
+                    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.15), 0 4px 10px rgba(0, 0, 0, 0.06);
                     padding: 4px;
-                    z-index: 10000;
+                    z-index: 999999 !important;
                     overflow: hidden;
                     opacity: 0;
                     visibility: hidden;
@@ -562,7 +566,7 @@ class SettingsUI {
                     opacity: 1;
                     visibility: visible;
                     transform: translateY(0) scale(1);
-                    pointer-events: auto;
+                    pointer-events: auto !important;
                 }
 
                 .select-scroll-viewport {
@@ -714,6 +718,84 @@ class SettingsUI {
                 .btn-lime { background: #D8FA63; color: #18181B; border: 1px solid #C4EC44; }
                 .btn-lime:hover:not(:disabled) { background: #C8EA2D; }
 
+                /* 自定义确认模态弹窗样式 */
+                #customConfirmModal {
+                    position: fixed;
+                    top: 0; left: 0; right: 0; bottom: 0;
+                    background: rgba(24, 24, 27, 0.45);
+                    -webkit-backdrop-filter: blur(4px);
+                    backdrop-filter: blur(4px);
+                    display: none;
+                    align-items: center;
+                    justify-content: center;
+                    z-index: 999999;
+                }
+                .confirm-box {
+                    width: 320px;
+                    background: #FFFFFF;
+                    border-radius: 16px;
+                    padding: 24px 20px;
+                    text-align: center;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.15), 0 0 0 1px #E3E4DC;
+                    animation: modalIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+                }
+                @keyframes modalIn {
+                    0% { transform: scale(0.92); opacity: 0; }
+                    100% { transform: scale(1); opacity: 1; }
+                }
+                .confirm-icon {
+                    width: 44px; height: 44px;
+                    line-height: 44px;
+                    background: #FEF08A;
+                    color: #854D0E;
+                    border-radius: 50%;
+                    font-size: 22px;
+                    font-weight: 900;
+                    margin: 0 auto 12px auto;
+                }
+                .confirm-title {
+                    font-size: 15px;
+                    font-weight: 800;
+                    color: #18181B;
+                    margin-bottom: 6px;
+                }
+                .confirm-desc {
+                    font-size: 12.5px;
+                    color: #71717A;
+                    margin-bottom: 20px;
+                    line-height: 1.4;
+                    word-break: break-all;
+                }
+                .confirm-btn-row {
+                    display: table;
+                    width: 100%;
+                }
+                .confirm-btn-cell {
+                    display: table-cell;
+                    width: 50%;
+                    padding-right: 5px;
+                }
+                .confirm-btn-cell:last-child {
+                    padding-right: 0;
+                    padding-left: 5px;
+                }
+                .btn-cancel-modal {
+                    background: #F3F4EE;
+                    color: #3F3F46;
+                    border: 1px solid #E3E4DC;
+                }
+                .btn-cancel-modal:hover {
+                    background: #E5E7DC;
+                }
+                .btn-confirm-modal {
+                    background: #D8FA63;
+                    color: #18181B;
+                    border: 1px solid #C4EC44;
+                }
+                .btn-confirm-modal:hover {
+                    background: #C8EA2D;
+                }
+
                 #centerModalToast {
                     position: fixed;
                     top: 50%;
@@ -762,6 +844,23 @@ class SettingsUI {
             </style>
         </head>
         <body>
+            <!-- 自定义精美确认模态框 -->
+            <div id="customConfirmModal">
+                <div class="confirm-box">
+                    <div class="confirm-icon">!</div>
+                    <div class="confirm-title" id="confirmTitle">删除确认</div>
+                    <div class="confirm-desc" id="confirmDesc">确定要删除该自定义模型吗？</div>
+                    <div class="confirm-btn-row">
+                        <div class="confirm-btn-cell">
+                            <button class="btn btn-cancel-modal" onclick="closeConfirmModal(false)">取消</button>
+                        </div>
+                        <div class="confirm-btn-cell">
+                            <button class="btn btn-confirm-modal" onclick="closeConfirmModal(true)">确认删除</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div id="centerModalToast">
                 <div class="toast-icon" id="toastIcon">✓</div>
                 <div class="toast-title" id="toastTitle">配置保存成功</div>
@@ -789,14 +888,14 @@ class SettingsUI {
                     <div class="main-title">打字翻译，在每一次思考后生成</div>
                     <div class="sub-desc">连接大模型大脑，自动识别中外文并地道转化输出。</div>
 
-                    <div class="card" id="cardLang" style="z-index: 50;">
+                    <div class="card" id="cardLang" style="z-index: 500;">
                         <div class="card-header">Language Preference · 语言设定</div>
                         
-                        <div class="form-row" style="z-index: 52;">
+                        <div class="form-row" style="z-index: 520;">
                             <div class="form-label">源语言</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-sourceLang" data-value="auto">
-                                    <div class="select-trigger" onclick="toggleDropdown('select-sourceLang')">
+                                    <div class="select-trigger" onclick="toggleDropdown('select-sourceLang'); event.stopPropagation();">
                                         <span class="select-text">自动识别 (中英双向智能互译)</span>
                                         <svg class="select-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                     </div>
@@ -807,7 +906,7 @@ class SettingsUI {
                                             <div class="select-option" data-value="zh" onclick="selectOption('select-sourceLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
                                             <div class="select-option" data-value="en" onclick="selectOption('select-sourceLang', 'en', 'English (英语)')">English (英语)</div>
                                             <div class="select-option" data-value="ja" onclick="selectOption('select-sourceLang', 'ja', '日本語 (Japanese)')">日本語 (Japanese)</div>
-                                            <div class="select-option" data-value="ko" onclick="selectOption('select-sourceLang', 'ko', '한국语 (Korean)')">한국어 (Korean)</div>
+                                            <div class="select-option" data-value="ko" onclick="selectOption('select-sourceLang', 'ko', '한국어 (Korean)')">한국어 (Korean)</div>
                                             <div class="select-option" data-value="es" onclick="selectOption('select-sourceLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-sourceLang', 'fr', 'Français (法语)')">Français (法语)</div>
                                             <div class="select-option" data-value="de" onclick="selectOption('select-sourceLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
@@ -818,11 +917,11 @@ class SettingsUI {
                             </div>
                         </div>
 
-                        <div class="form-row" style="z-index: 51;">
+                        <div class="form-row" style="z-index: 510;">
                             <div class="form-label">目标语言</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-targetLang" data-value="en">
-                                    <div class="select-trigger" onclick="toggleDropdown('select-targetLang')">
+                                    <div class="select-trigger" onclick="toggleDropdown('select-targetLang'); event.stopPropagation();">
                                         <span class="select-text">English (英语)</span>
                                         <svg class="select-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                     </div>
@@ -844,14 +943,14 @@ class SettingsUI {
                         </div>
                     </div>
 
-                    <div class="card" id="cardModel" style="z-index: 40;">
+                    <div class="card" id="cardModel" style="z-index: 400;">
                         <div class="card-header">AI Engine & Endpoint · 大模型配置</div>
                         
-                        <div class="form-row" style="z-index: 41;">
+                        <div class="form-row" style="z-index: 410;">
                             <div class="form-label">AI 平台</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-provider" data-value="DeepSeek">
-                                    <div class="select-trigger" onclick="toggleDropdown('select-provider')">
+                                    <div class="select-trigger" onclick="toggleDropdown('select-provider'); event.stopPropagation();">
                                         <span class="select-text">DeepSeek（官方直连·深度思考）</span>
                                         <svg class="select-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
                                     </div>
@@ -1004,6 +1103,23 @@ class SettingsUI {
                 };
 
                 var toastTimer = null;
+                var confirmCallback = null;
+
+                function showCustomConfirm(title, desc, callback) {
+                    document.getElementById("confirmTitle").innerText = title;
+                    document.getElementById("confirmDesc").innerText = desc;
+                    document.getElementById("customConfirmModal").style.display = "flex";
+                    confirmCallback = callback;
+                }
+
+                function closeConfirmModal(result) {
+                    document.getElementById("customConfirmModal").style.display = "none";
+                    if (confirmCallback) {
+                        var cb = confirmCallback;
+                        confirmCallback = null;
+                        cb(result);
+                    }
+                }
 
                 function renderProviderOptions() {
                     var vp = document.getElementById("providerViewport");
@@ -1029,8 +1145,8 @@ class SettingsUI {
                         }
                     }
 
-                    // 3. 常驻添加新自定义
-                    html += '<div class="select-option" style="color:#15803D; font-weight:700; border-top:1px dashed #D9DCD2; margin-top:4px;" data-value="__ADD_NEW__" onclick="addNewCustomProvider()">➕ 添加自定义 API...</div>';
+                    // 3. 常驻添加新自定义 (颜色与保存按钮 #D8FA63 保持一致)
+                    html += '<div class="select-option" style="background-color: #D8FA63 !important; color: #18181B !important; font-weight: 800; border-top: 1px solid #C4EC44; margin-top: 4px; border-radius: 7px;" data-value="__ADD_NEW__" onclick="addNewCustomProvider()">➕ 添加自定义模型API</div>';
                     vp.innerHTML = html;
                 }
 
@@ -1053,17 +1169,22 @@ class SettingsUI {
 
                 function deleteCustomProvider(e, key) {
                     if (e) e.stopPropagation();
-                    if (!confirm("确定要删除自定义模型【" + (g_allConfigs[key].custom_name || key) + "】吗？"))
-                        return;
-
-                    delete g_allConfigs[key];
-                    if (g_currentProvider === key) {
-                        g_currentProvider = "DeepSeek";
-                    }
-                    renderProviderOptions();
-                    setCustomSelectValue("select-provider", g_currentProvider);
-                    renderCurrentForm();
-                    showCenterToast("已成功删除模型配置", false);
+                    var modelName = g_allConfigs[key].custom_name || key;
+                    showCustomConfirm("删除模型确认", "确定要删除自定义模型【" + modelName + "】吗？", function(confirmed) {
+                        if (confirmed) {
+                            delete g_allConfigs[key];
+                            if (g_currentProvider === key) {
+                                g_currentProvider = "DeepSeek";
+                            }
+                            renderProviderOptions();
+                            setCustomSelectValue("select-provider", g_currentProvider);
+                            renderCurrentForm();
+                            
+                            // 立即触发保存，使程序与翻译框瞬间生效
+                            triggerSaveSilent();
+                            showCenterToast("已成功删除模型并即时生效", false);
+                        }
+                    });
                 }
 
                 function switchTab(tabName) {
@@ -1178,11 +1299,24 @@ class SettingsUI {
                     }
                 }
 
+                // 兼容 IE11 的祖先元素检查，确保点击空白处可正常收起所有下拉框
+                function hasCustomSelectParent(node) {
+                    while (node && node !== document) {
+                        if (node.className && typeof node.className === 'string' && node.className.indexOf('custom-select') !== -1) {
+                            return true;
+                        }
+                        node = node.parentNode;
+                    }
+                    return false;
+                }
+
                 document.addEventListener("click", function(e) {
-                    if (!e.target.closest(".custom-select")) {
+                    var evt = e || window.event;
+                    var target = evt.target || evt.srcElement;
+                    if (!hasCustomSelectParent(target)) {
                         closeAllDropdowns();
                     }
-                });
+                }, false);
 
                 function selectOption(selectId, value, labelText) {
                     var el = document.getElementById(selectId);
@@ -1357,6 +1491,26 @@ class SettingsUI {
                     };
 
                     showCenterToast("全部配置已生效，快捷键与模型列表已同步", false);
+                    window.ahk_call("save", JSON.stringify(fullConfigObj));
+                }
+
+                function triggerSaveSilent() {
+                    saveCurrentFormToMemory();
+                    var currentHotkeys = {
+                        show_bar: userToAhk(document.getElementById("hk_show_bar").value) || "!y",
+                        settings: userToAhk(document.getElementById("hk_settings").value) || "!s",
+                        output_trans: userToAhk(document.getElementById("hk_output_trans").value) || "Enter",
+                        output_raw: userToAhk(document.getElementById("hk_output_raw").value) || "^Enter",
+                        switch_ai: userToAhk(document.getElementById("hk_switch_ai").value) || "Tab"
+                    };
+
+                    var fullConfigObj = {
+                        current_provider: g_currentProvider,
+                        source_lang: getCustomSelectValue("select-sourceLang"),
+                        target_lang: getCustomSelectValue("select-targetLang"),
+                        providers: g_allConfigs,
+                        hotkeys: currentHotkeys
+                    };
                     window.ahk_call("save", JSON.stringify(fullConfigObj));
                 }
 

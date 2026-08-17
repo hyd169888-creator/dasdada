@@ -4,6 +4,7 @@ Persistent(true)
 
 #Include Settings_UI.ahk
 #Include Float_Bar.ahk
+#Include Updater.ahk
 
 class AppController {
     static boundHotkeys := Map()
@@ -75,5 +76,11 @@ class AppController {
     }
 }
 
-; 核心启动入口：执行初始化并常驻运行
+; 1. 核心启动入口：执行控制器初始化
 AppController.Init()
+
+; 2. 启动时直接打开设置中心（实现秒出效果）
+SettingsUI.Show()
+
+; 3. 启动 0.1 秒后后台静默检测更新
+SetTimer(() => AppUpdater.Check(true), -100)

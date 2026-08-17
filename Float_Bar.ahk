@@ -28,7 +28,7 @@ class FloatBar {
     static currentProvider := "DeepSeek"
 
     ; ==========================================================================
-    ; 动态获取所有可用模型及 1:1 完整显示名称映射
+    ; 动态获取所有可用模型及 1:1 完整显示名称映射（已修复删除同步问题）
     ; ==========================================================================
     static GetDynamicProviders() {
         cfg := SettingsUI.LoadConfig()
@@ -49,7 +49,7 @@ class FloatBar {
 
         if (cfg.Has("providers") && IsObject(cfg["providers"])) {
             for pKey, pVal in cfg["providers"] {
-                if (pKey == "" || InStr(pKey, "添加") || pKey == "添加自定义 API...")
+                if (pKey == "" || InStr(pKey, "添加") || pKey == "添加自定义模型API")
                     continue
 
                 displayName := pKey
