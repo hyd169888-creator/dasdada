@@ -28,59 +28,82 @@ class FloatBar {
     static currentProvider := "DeepSeek"
 
     ; ==========================================================================
-    ; 动态获取当前所有可用的模型列表及名称映射（支持内置 + 用户动态添加的自定义模型）
+    ; 动态获取所有可用模型及 1:1 完整显示名称映射
     ; ==========================================================================
     static GetDynamicProviders() {
         cfg := SettingsUI.LoadConfig()
         
-        ; 默认内置模型列表与标准全称映射
-        list := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao"]
-        titles := Map(
+        list := []
+        titles := Map()
+
+        ; 内置模型标准全称映射
+        builtinMap := Map(
             "DeepSeek", "DeepSeek（官方直连·深度思考）",
             "Gemini", "Gemini（需魔法）",
             "OpenAI", "ChatGPT（需魔法）",
             "NVIDIA", "NVIDIA·免费满血模型（需魔法）",
-            "Doubao", "豆包(ByteDance)"
+            "Doubao", "豆包(ByteDance)",
+            "Qwen", "通义千问 (阿里百炼·国内直连)",
+            "Tongyi", "通义千问 (阿里百炼·国内直连)"
         )
-        
-        ; 动态从配置中读取所有自定义添加的 API / 模型
+
         if (cfg.Has("providers") && IsObject(cfg["providers"])) {
             for pKey, pVal in cfg["providers"] {
-                ; 如果不是内置模型，则视作自定义添加的模型
-                if (!titles.Has(pKey)) {
-                    displayName := pKey
-                    if (IsObject(pVal)) {
-                        if (pVal.Has("platform_nickname") && pVal["platform_nickname"] != "") {
-                            displayName := pVal["platform_nickname"]
-                        } else if (pVal.Has("name") && pVal["name"] != "") {
-                            displayName := pVal["name"]
-                        } else if (pVal.Has("nickname") && pVal["nickname"] != "") {
-                            displayName := pVal["nickname"]
-                        }
+                if (pKey == "" || InStr(pKey, "添加") || pKey == "添加自定义 API...")
+                    continue
+
+                displayName := pKey
+
+                ; 1. 如果是内置模型，赋予标准全称
+                if (builtinMap.Has(pKey)) {
+                    displayName := builtinMap[pKey]
+                } 
+                else if (IsObject(pVal)) {
+                    ; 2. 如果是自定义模型，精准提取 custom_name 或 platform_nickname
+                    if (pVal.Has("custom_name") && pVal["custom_name"] != "") {
+                        displayName := pVal["custom_name"]
+                    } else if (pVal.Has("platform_nickname") && pVal["platform_nickname"] != "") {
+                        displayName := pVal["platform_nickname"]
                     }
-                    titles[pKey] := displayName
-                    
-                    ; 避免重复加入轮换列表
-                    found := false
-                    for existingKey in list {
-                        if (existingKey == pKey) {
-                            found := true
-                            break
-                        }
+                }
+
+                titles[pKey] := displayName
+                
+                ; 避免重复加入轮换列表
+                found := false
+                for existingKey in list {
+                    if (existingKey == pKey) {
+                        found := true
+                        break
                     }
-                    if (!found) {
-                        list.Push(pKey)
-                    }
+                }
+                if (!found) {
+                    list.Push(pKey)
                 }
             }
         }
-        
+
+        ; 保底默认列表
+        if (list.Length == 0) {
+            list := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao", "Qwen"]
+            for k, v in builtinMap {
+                titles[k] := v
+            }
+        }
+
         return { list: list, titles: titles }
     }
 
     static GetProviderTitle(key) {
         data := this.GetDynamicProviders()
-        return data.titles.Has(key) ? data.titles[key] : key
+        if (data.titles.Has(key)) {
+            return data.titles[key]
+        }
+        for k, v in data.titles {
+            if (k == key || v == key)
+                return v
+        }
+        return key
     }
 
     static Create() {
@@ -330,8 +353,6 @@ class FloatBar {
         
         this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
 
-        if (Trim(this.editInput.Value) != "") {
-            this.DoLiveTranslate(this.editInput.Value)
-        }
+        (Trim(this.editInput.Value) != "") ? this.DoLiveTranslate(this.editInput.Value) : ""
     }
 }

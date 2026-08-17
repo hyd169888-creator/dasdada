@@ -1,4 +1,4 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 Persistent(true)
 
@@ -369,7 +369,7 @@ class SettingsUI {
             if (RegExMatch(content, '"target_lang"\s*:\s*"([^"]+)"', &t))
                 defaultMap["target_lang"] := t[1]
 
-            ; 读取所有 Provider (支持动态自定义列表)
+            ; 读取所有 Provider (双向兼容 custom_name 与 platform_nickname)
             if RegExMatch(content, 's)"providers"\s*:\s*\{(.*)\}\s*,\s*"hotkeys"', &pBlock) {
                 pContent := pBlock[1]
                 pos := 1
@@ -388,7 +388,8 @@ class SettingsUI {
                         "model", bModel,
                         "api_key", bKey,
                         "is_custom", bIsCustom,
-                        "custom_name", bCustomName
+                        "custom_name", bCustomName,
+                        "platform_nickname", bCustomName
                     )
                     pos += StrLen(mMatch[0])
                 }
