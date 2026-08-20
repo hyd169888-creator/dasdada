@@ -9,6 +9,19 @@
     "Main.ahk",
     "Settings_UI.ahk",
     "Test_UI.ahk",
-    "Updater.ahk"
+    "Updater.ahk",
+    "assets/icons/deepseek.png",
+    "assets/icons/doubao.png",
+    "assets/icons/gemini-color.png",
+    "assets/icons/GPT.png",
+    "assets/icons/meta.png",
+    "assets/icons/nvidia.png",
+    "assets/icons/qwen.png",
+    "assets/logo/16x16.ico",
+    "assets/logo/32x32.ico",
+    "assets/logo/48x48.ico",
+    "assets/logo/256x256.ico",
+    "assets/logo/logo128 × 128.png",
+    "assets/logo/logo256 × 256.png"
   ]
 }
