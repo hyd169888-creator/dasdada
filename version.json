@@ -1,12 +1,14 @@
 {
-    "version": "2.1.3",
-    "changelog": "1. 🛠️ 修复悬浮窗 Tab 切换模型时无法识别及显示动态添加的自定义 API / 模型昵称的 Bug。\n2. ✨ 完美支持实时轮换与加载所有自定义与内置大模型引擎，悬浮窗昵称与设置中心 1:1 精准同步。\n3. ⚡ 优化配置项底层映射，彻底解决部分自定义模型显示为随机编号的问题。\n4. ⚡ 开发不易，如有BUG或其他需求可以联系作者：1368955024@qq.com",
-    "files": [
-        "AI_Translate.ahk",
-        "Float_Bar.ahk",
-        "Launcher.ahk",
-        "Main.ahk",
-        "Settings_UI.ahk",
-        "Updater.ahk"
-    ]
+  "version": "2.2.0",
+  "changelog": "1. 优化本地图标加载，实现双端秒开。\n2. 升级 400ms 统一防抖缓冲，节省 Token。\n3. 增强自动识别模式下的中英双向互译。\n4. 修复类名冲突及悬浮窗拖拽 Bug。",
+  "files": [
+    "AI_Translate.ahk",
+    "AI智能打字翻译.exe",
+    "Float_Bar.ahk",
+    "Launcher.ahk",
+    "Main.ahk",
+    "Settings_UI.ahk",
+    "Test_UI.ahk",
+    "Updater.ahk"
+  ]
 }
