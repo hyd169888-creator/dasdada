@@ -3,11 +3,8 @@
 Persistent(true)
 
 #Include AI_Translate.ahk
-#Include "*i FloatBar.ahk"
+#Include "*i Float_Bar.ahk"
 
-; ==============================================================================
-; 注册底层键盘消息与系统关闭消息拦截
-; ==============================================================================
 OnMessage(0x0100, WM_KEYDOWN_ACCELERATOR, 2)
 OnMessage(0x0010, WM_CLOSE_INTERCEPT, 2)
 
@@ -58,7 +55,7 @@ class SettingsUI {
     }
 
     static GetBestIcoPath() {
-        icoDir := A_ScriptDir . "\assets\logo\"
+        icoDir := "F:\AI-Live-Translator\assets\logo\"
         preferredList := [
             icoDir . "256x256.ico",
             icoDir . "48x48.ico",
@@ -116,8 +113,46 @@ class SettingsUI {
         this.trayInitialized := true
     }
 
+    static GetIconBase64(key) {
+        icoDir := "F:\AI-Live-Translator\assets\icons\"
+        iconMap := Map(
+            "Gemini",  "Gemini.png",
+            "OpenAI",  "GPT.png",
+            "NVIDIA",  "nvidia.png",
+            "Meta",    "meta.png",
+            "Qwen",    "qwen.png",
+            "DeepSeek","deepseek.png",
+            "Doubao",  "doubao.png"
+        )
+        fileName := iconMap.Has(key) ? iconMap[key] : (StrLower(key) . ".png")
+        targetPath := icoDir . fileName
+        if (!FileExist(targetPath))
+            return ""
+
+        try {
+            fileObj := FileOpen(targetPath, "r")
+            fileLen := fileObj.Length
+            fileBuf := Buffer(fileLen, 0)
+            fileObj.RawRead(fileBuf, fileLen)
+            fileObj.Close()
+
+            charsNeeded := 0
+            DllCall("Crypt32.dll\CryptBinaryToStringW", "ptr", fileBuf.Ptr, "uint", fileLen, "uint", 0x40000001, "ptr", 0, "uint*", &charsNeeded)
+            outBuf := Buffer(charsNeeded * 2, 0)
+            DllCall("Crypt32.dll\CryptBinaryToStringW", "ptr", fileBuf.Ptr, "uint", fileLen, "uint", 0x40000001, "ptr", outBuf.Ptr, "uint*", &charsNeeded)
+
+            b64 := StrGet(outBuf)
+            b64 := StrReplace(b64, "`r", "")
+            b64 := StrReplace(b64, "`n", "")
+            b64 := StrReplace(b64, " ", "")
+            return "data:image/png;base64," . b64
+        } catch {
+            return ""
+        }
+    }
+
     static GetLogoBase64() {
-        logoDir := A_ScriptDir . "\assets\logo\"
+        logoDir := "F:\AI-Live-Translator\assets\logo\"
         targetPath := ""
         mime := "image/png"
 
@@ -180,7 +215,7 @@ class SettingsUI {
         }
 
         this.InitBrowserEngine()
-        this.configFile := A_ScriptDir . "\config\setting.json"
+        this.configFile := "F:\AI-Live-Translator\config\setting.json"
         this.configData := this.LoadConfig()
 
         myGui := Gui("-AlwaysOnTop", "AI 智能打字翻译 - 设置中心")
@@ -202,8 +237,16 @@ class SettingsUI {
             imgTag := '<div class="brand-avatar" style="background:#18181B; display:inline-block;"></div>'
         }
         htmlCode := StrReplace(htmlCode, "{{LOGO_ELEMENT}}", imgTag)
+
+        htmlCode := StrReplace(htmlCode, "{{GEMINI_B64}}", this.GetIconBase64("Gemini"))
+        htmlCode := StrReplace(htmlCode, "{{OPENAI_B64}}", this.GetIconBase64("OpenAI"))
+        htmlCode := StrReplace(htmlCode, "{{NVIDIA_B64}}", this.GetIconBase64("NVIDIA"))
+        htmlCode := StrReplace(htmlCode, "{{META_B64}}",   this.GetIconBase64("Meta"))
+        htmlCode := StrReplace(htmlCode, "{{QWEN_B64}}",   this.GetIconBase64("Qwen"))
+        htmlCode := StrReplace(htmlCode, "{{DEEPSEEK_B64}}", this.GetIconBase64("DeepSeek"))
+        htmlCode := StrReplace(htmlCode, "{{DOUBAO_B64}}", this.GetIconBase64("Doubao"))
         
-        verText := "v2.0.2"
+        verText := "v2.1.3"
         try {
             if IsSet(AppUpdater)
                 verText := "v" . AppUpdater.GetCurrentVersion()
@@ -240,8 +283,8 @@ class SettingsUI {
         }
         else if (action == "save") {
             try {
-                if !DirExist(A_ScriptDir . "\config")
-                    DirCreate(A_ScriptDir . "\config")
+                if !DirExist("F:\AI-Live-Translator\config")
+                    DirCreate("F:\AI-Live-Translator\config")
                 
                 if FileExist(this.configFile)
                     FileDelete(this.configFile)
@@ -343,7 +386,8 @@ class SettingsUI {
                 "Gemini", Map("base_url", "https://generativelanguage.googleapis.com/v1beta/openai", "model", "gemini-1.5-flash", "api_key", ""),
                 "OpenAI", Map("base_url", "https://api.openai.com/v1", "model", "gpt-4o-mini", "api_key", ""),
                 "NVIDIA", Map("base_url", "https://integrate.api.nvidia.com/v1", "model", "meta/llama-3.1-8b-instruct", "api_key", ""),
-                "Qwen", Map("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1", "model", "qwen-plus", "api_key", ""),
+                "Meta",   Map("base_url", "https://integrate.api.nvidia.com/v1", "model", "meta/llama-3.3-70b-instruct", "api_key", ""),
+                "Qwen",   Map("base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1", "model", "qwen-plus", "api_key", ""),
                 "DeepSeek", Map("base_url", "https://api.deepseek.com/v1", "model", "deepseek-chat", "api_key", ""),
                 "Doubao", Map("base_url", "https://ark.cn-beijing.volces.com/api/v3", "model", "ep-xxxxxx", "api_key", "")
             ),
@@ -352,10 +396,12 @@ class SettingsUI {
                 "settings", "!s",
                 "output_trans", "Enter",
                 "output_raw", "^Enter",
-                "switch_ai", "Tab"
+                "switch_ai", "Tab",
+                "paste_trans", "^!y"
             )
         )
 
+        this.configFile := "F:\AI-Live-Translator\config\setting.json"
         if !FileExist(this.configFile)
             return defaultMap
         
@@ -368,7 +414,6 @@ class SettingsUI {
             if (RegExMatch(content, '"target_lang"\s*:\s*"([^"]+)"', &t))
                 defaultMap["target_lang"] := t[1]
 
-            ; 读取所有 Provider
             if RegExMatch(content, 's)"providers"\s*:\s*\{(.*)\}\s*,\s*"hotkeys"', &pBlock) {
                 pContent := pBlock[1]
                 pos := 1
@@ -396,7 +441,7 @@ class SettingsUI {
 
             if RegExMatch(content, 's)"hotkeys"\s*:\s*\{(.*?)\}', &hkBlock) {
                 hStr := hkBlock[1]
-                for hkKey in ["show_bar", "settings", "output_trans", "output_raw", "switch_ai"] {
+                for hkKey in ["show_bar", "settings", "output_trans", "output_raw", "switch_ai", "paste_trans"] {
                     if RegExMatch(hStr, '"' . hkKey . '"\s*:\s*"([^"]*)"', &hVal)
                         defaultMap["hotkeys"][hkKey] := hVal[1]
                 }
@@ -492,7 +537,6 @@ class SettingsUI {
                     width: 100%;
                     user-select: none;
                     cursor: pointer;
-                    z-index: 100;
                 }
                 
                 .select-trigger {
@@ -521,6 +565,17 @@ class SettingsUI {
                     overflow: hidden;
                     text-overflow: ellipsis;
                     padding-right: 8px;
+                    pointer-events: none;
+                    display: flex;
+                    align-items: center;
+                }
+                
+                .select-text img, .select-text svg {
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 8px;
+                    vertical-align: middle;
+                    flex-shrink: 0;
                     pointer-events: none;
                 }
 
@@ -618,7 +673,7 @@ class SettingsUI {
                     cursor: pointer;
                     display: flex;
                     align-items: center;
-                    justify-content: space-between;
+                    justify-content: flex-start;
                     transition: all 0.16s ease;
                     margin-bottom: 2px;
                 }
@@ -635,14 +690,24 @@ class SettingsUI {
                     font-weight: 700;
                 }
                 
+                .select-option img, .select-option svg {
+                    width: 16px;
+                    height: 16px;
+                    margin-right: 8px;
+                    vertical-align: middle;
+                    flex-shrink: 0;
+                    pointer-events: none;
+                }
+                
                 .del-opt-btn {
                     color: #9CA3AF;
                     font-size: 13px;
                     font-weight: bold;
                     padding: 2px 6px;
                     border-radius: 4px;
-                    margin-left: 6px;
+                    margin-left: auto;
                     transition: all 0.15s;
+                    cursor: pointer;
                 }
                 .del-opt-btn:hover {
                     background-color: #EF4444;
@@ -718,7 +783,6 @@ class SettingsUI {
                 .btn-lime { background: #D8FA63; color: #18181B; border: 1px solid #C4EC44; }
                 .btn-lime:hover:not(:disabled) { background: #C8EA2D; }
 
-                /* 自定义确认模态弹窗样式 */
                 #customConfirmModal {
                     position: fixed;
                     top: 0; left: 0; right: 0; bottom: 0;
@@ -802,8 +866,8 @@ class SettingsUI {
                     left: 50%;
                     transform: translate(-50%, -50%);
                     -webkit-transform: translate(-50%, -50%);
-                    width: 270px;
-                    background: rgba(24, 24, 27, 0.82);
+                    width: 310px;
+                    background: rgba(24, 24, 27, 0.88);
                     -webkit-backdrop-filter: blur(16px);
                     backdrop-filter: blur(16px);
                     color: #FFFFFF;
@@ -811,7 +875,7 @@ class SettingsUI {
                     border-radius: 18px;
                     text-align: center;
                     display: none;
-                    z-index: 999999;
+                    z-index: 9999999;
                     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(255, 255, 255, 0.12) inset;
                     border: 1px solid rgba(255, 255, 255, 0.08);
                 }
@@ -835,8 +899,9 @@ class SettingsUI {
                     letter-spacing: 0.3px;
                 }
                 .toast-desc {
-                    font-size: 11.5px;
-                    color: rgba(255, 255, 255, 0.75);
+                    font-size: 12px;
+                    color: rgba(255, 255, 255, 0.8);
+                    line-height: 1.4;
                 }
 
                 .page-section { display: none; }
@@ -844,7 +909,6 @@ class SettingsUI {
             </style>
         </head>
         <body>
-            <!-- 自定义精美确认模态框 -->
             <div id="customConfirmModal">
                 <div class="confirm-box">
                     <div class="confirm-icon">!</div>
@@ -864,7 +928,7 @@ class SettingsUI {
             <div id="centerModalToast">
                 <div class="toast-icon" id="toastIcon">✓</div>
                 <div class="toast-title" id="toastTitle">配置保存成功</div>
-                <div class="toast-desc" id="toastDesc">全部配置已生效，可直接开始翻译</div>
+                <div class="toast-desc" id="toastDesc">已成功切换语言模式：中文 ↔ 日本语</div>
             </div>
 
             <div class="container">
@@ -882,16 +946,15 @@ class SettingsUI {
                     </div>
                 </div>
 
-                <!-- 页面 1: 实时引擎设置 -->
                 <div class="page-section active" id="pageEngine">
                     <div class="tag">LIVE INTELLIGENT TRANSLATION</div>
                     <div class="main-title">打字翻译，在每一次思考后生成</div>
                     <div class="sub-desc">连接大模型大脑，自动识别中外文并地道转化输出。</div>
 
-                    <div class="card" id="cardLang" style="z-index: 500;">
+                    <div class="card" id="cardLang" style="z-index: 800;">
                         <div class="card-header">Language Preference · 语言设定</div>
                         
-                        <div class="form-row" style="z-index: 520;">
+                        <div class="form-row" style="z-index: 820;">
                             <div class="form-label">源语言</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-sourceLang" data-value="auto">
@@ -917,7 +980,7 @@ class SettingsUI {
                             </div>
                         </div>
 
-                        <div class="form-row" style="z-index: 510;">
+                        <div class="form-row" style="z-index: 810;">
                             <div class="form-label">目标语言</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-targetLang" data-value="en">
@@ -930,11 +993,11 @@ class SettingsUI {
                                         <div class="select-scroll-viewport" onscroll="updateScroll('select-targetLang', 'thumb-targetLang')">
                                             <div class="select-option selected" data-value="en" onclick="selectOption('select-targetLang', 'en', 'English (英语)')">English (英语)</div>
                                             <div class="select-option" data-value="zh" onclick="selectOption('select-targetLang', 'zh', '中文 (Chinese)')">中文 (Chinese)</div>
-                                            <div class="select-option" data-value="ja" onclick="selectOption('select-targetLang', 'ja', '日本語 (日语)')">日本語 (日语)</div>
+                                            <div class="select-option" data-value="ja" onclick="selectOption('select-sourceLang', 'ja', '日本語 (日语)')">日本語 (日语)</div>
                                             <div class="select-option" data-value="ko" onclick="selectOption('select-targetLang', 'ko', '한국어 (韩语)')">한국어 (韩语)</div>
                                             <div class="select-option" data-value="es" onclick="selectOption('select-targetLang', 'es', 'Español (西班牙语)')">Español (西班牙语)</div>
                                             <div class="select-option" data-value="fr" onclick="selectOption('select-targetLang', 'fr', 'Français (法语)')">Français (法语)</div>
-                                            <div class="select-option" data-value="de" onclick="selectOption('select-targetLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
+                                            <div class="select-option" data-value="de" onclick="selectOption('select-sourceLang', 'de', 'Deutsch (德语)')">Deutsch (德语)</div>
                                             <div class="select-option" data-value="ru" onclick="selectOption('select-targetLang', 'ru', 'Русский (俄语)')">Русский (俄语)</div>
                                         </div>
                                     </div>
@@ -943,10 +1006,10 @@ class SettingsUI {
                         </div>
                     </div>
 
-                    <div class="card" id="cardModel" style="z-index: 400;">
+                    <div class="card" id="cardModel" style="z-index: 700;">
                         <div class="card-header">AI Engine & Endpoint · 大模型配置</div>
                         
-                        <div class="form-row" style="z-index: 410;">
+                        <div class="form-row" style="z-index: 710;">
                             <div class="form-label">AI 平台</div>
                             <div class="form-field">
                                 <div class="custom-select" id="select-provider" data-value="DeepSeek">
@@ -957,14 +1020,12 @@ class SettingsUI {
                                     <div class="select-dropdown">
                                         <div class="capsule-track"><div class="capsule-thumb" id="thumb-provider"></div></div>
                                         <div class="select-scroll-viewport" id="providerViewport" onscroll="updateScroll('select-provider', 'thumb-provider')">
-                                            <!-- 由 JS 动态渲染模型列表 -->
                                         </div>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- 动态别名输入框（仅自定义项目显示） -->
                         <div class="form-row" id="rowCustomName" style="display: none;">
                             <div class="form-label">平台昵称</div>
                             <div class="form-field">
@@ -1007,7 +1068,6 @@ class SettingsUI {
                     </div>
                 </div>
 
-                <!-- 页面 2: 快捷键设置 -->
                 <div class="page-section" id="pageHotkey">
                     <div class="tag">GLOBAL SYSTEM SHORTCUTS</div>
                     <div class="main-title">全局交互快捷键管理</div>
@@ -1046,6 +1106,12 @@ class SettingsUI {
                             </div>
                         </div>
                         <div class="form-row">
+                            <div class="form-label">快捷粘贴翻译</div>
+                            <div class="form-field">
+                                <input type="text" id="hk_paste_trans" class="input-box hk-input" onkeydown="recordHotkey(event, this)" placeholder="如: Ctrl+Alt+Y" />
+                            </div>
+                        </div>
+                        <div class="form-row">
                             <div class="form-label">快速轮换模型</div>
                             <div class="form-field">
                                 <input type="text" id="hk_switch_ai" class="input-box hk-input" onkeydown="recordHotkey(event, this)" placeholder="如: Tab" />
@@ -1055,7 +1121,7 @@ class SettingsUI {
 
                     <div class="lime-card">
                         <div class="lime-tag">Tips · 按键提示</div>
-                        <div class="lime-text">💡 点击输入框后直接按下组合键即可自动捕获，支持 Ctrl、Alt、Shift 及常用按键组合。</div>
+                        <div class="lime-text">💡 点击输入框后直接按下组合键即可自动捕获，支持 Ctrl、Alt, Shift 及常用按键组合。</div>
                     </div>
 
                     <div class="btn-row">
@@ -1068,7 +1134,6 @@ class SettingsUI {
                     </div>
                 </div>
 
-                <!-- 底部版本号徽章 -->
                 <div style="position: absolute; bottom: 12px; left: 0; right: 0; text-align: center; pointer-events: none;">
                     <span style="display: inline-block; background-color: #D4F658; color: #1A2E05; font-size: 12px; font-weight: bold; padding: 4px 16px; border-radius: 6px; border: 1px solid #c0e840; box-shadow: 0 2px 6px rgba(0,0,0,0.06); pointer-events: auto;">当前版本: {{APP_VERSION}}</span>
                 </div>
@@ -1080,18 +1145,20 @@ class SettingsUI {
                     "Gemini": { base_url: "https://generativelanguage.googleapis.com/v1beta/openai", model: "gemini-1.5-flash", api_key: "", is_custom: false },
                     "OpenAI": { base_url: "https://api.openai.com/v1", model: "gpt-4o-mini", api_key: "", is_custom: false },
                     "NVIDIA": { base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.1-8b-instruct", api_key: "", is_custom: false },
+                    "Meta":   { base_url: "https://integrate.api.nvidia.com/v1", model: "meta/llama-3.3-70b-instruct", api_key: "", is_custom: false },
                     "Qwen": { base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1", model: "qwen-plus", api_key: "", is_custom: false },
                     "DeepSeek": { base_url: "https://api.deepseek.com/v1", model: "deepseek-chat", api_key: "", is_custom: false },
                     "Doubao": { base_url: "https://ark.cn-beijing.volces.com/api/v3", model: "ep-xxxxxx", api_key: "", is_custom: false }
                 };
 
                 var g_builtinLabels = {
-                    "Gemini": "Gemini（需魔法）",
-                    "OpenAI": "ChatGPT（需魔法）",
-                    "NVIDIA": "NVIDIA·免费满血模型（需魔法）",
-                    "Qwen": "通义千问 (阿里百炼·国内直连)",
-                    "DeepSeek": "DeepSeek（官方直连·深度思考）",
-                    "Doubao": "豆包(ByteDance)"
+                    "Gemini": '<img alt="Gemini" width="16" height="16" src="{{GEMINI_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">Gemini（需魔法）',
+                    "OpenAI": '<img alt="OpenAI" width="16" height="16" src="{{OPENAI_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">ChatGPT（需魔法）',
+                    "NVIDIA": '<img alt="NVIDIA" width="16" height="16" src="{{NVIDIA_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">NVIDIA·免费满血模型（需魔法）',
+                    "Meta":   '<img alt="Meta" width="16" height="16" src="{{META_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">Meta（需魔法）',
+                    "Qwen": '<img alt="通义千问" width="16" height="16" src="{{QWEN_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">通义千问 (阿里百炼·国内直连)',
+                    "DeepSeek": '<img alt="DeepSeek" width="16" height="16" src="{{DEEPSEEK_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">DeepSeek（官方直连·深度思考）',
+                    "Doubao": '<img alt="豆包" width="16" height="16" src="{{DOUBAO_B64}}" style="width:16px;height:16px;vertical-align:middle;margin-right:8px;">豆包(ByteDance)'
                 };
 
                 var g_hotkeys = {
@@ -1099,7 +1166,8 @@ class SettingsUI {
                     settings: "!s",
                     output_trans: "Enter",
                     output_raw: "^Enter",
-                    switch_ai: "Tab"
+                    switch_ai: "Tab",
+                    paste_trans: "^!y"
                 };
 
                 var toastTimer = null;
@@ -1126,26 +1194,27 @@ class SettingsUI {
                     if (!vp) return;
                     var html = "";
 
-                    // 1. 系统内置
                     for (var k in g_builtinLabels) {
                         var sel = (k === g_currentProvider) ? " selected" : "";
-                        html += '<div class="select-option' + sel + '" data-value="' + k + '" onclick="selectOption(\'select-provider\', \'' + k + '\', \'' + g_builtinLabels[k] + '\')">' + g_builtinLabels[k] + '</div>';
+                        html += '<div class="select-option' + sel + '" data-value="' + k + '" onclick="selectOption(\'select-provider\', \'' + k + '\', \'' + encodeURIComponent(g_builtinLabels[k]) + '\', true)">' + g_builtinLabels[k] + '</div>';
                     }
 
-                    // 2. 自定义模型
                     for (var key in g_allConfigs) {
                         if (!g_builtinLabels[key]) {
                             var item = g_allConfigs[key];
                             var displayName = (item.custom_name || key);
                             var isSel = (key === g_currentProvider) ? " selected" : "";
-                            html += '<div class="select-option' + isSel + '" data-value="' + key + '" onclick="selectOption(\'select-provider\', \'' + key + '\', \'' + displayName + '\')">';
-                            html += '<span>⚙️ ' + displayName + '</span>';
+                            var safeNameEsc = displayName.replace(/'/g, "\\\'");
+                            var customLabelHtml = '🤖 ' + safeNameEsc;
+                            var customEncoded = encodeURIComponent(customLabelHtml);
+                            
+                            html += '<div class="select-option' + isSel + '" data-value="' + key + '" onclick="selectOption(\'select-provider\', \'' + key + '\', \'' + customEncoded + '\', true)">';
+                            html += '<div class="select-option-inner"><span>🤖 ' + displayName + '</span></div>';
                             html += '<span class="del-opt-btn" title="删除该自定义模型" onclick="deleteCustomProvider(event, \'' + key + '\')">✕</span>';
                             html += '</div>';
                         }
                     }
 
-                    // 3. 常驻添加新自定义 (颜色与保存按钮 #D8FA63 保持一致)
                     html += '<div class="select-option" style="background-color: #D8FA63 !important; color: #18181B !important; font-weight: 800; border-top: 1px solid #C4EC44; margin-top: 4px; border-radius: 7px;" data-value="__ADD_NEW__" onclick="addNewCustomProvider()">➕ 添加自定义模型API</div>';
                     vp.innerHTML = html;
                 }
@@ -1158,7 +1227,7 @@ class SettingsUI {
                         model: "gpt-3.5-turbo",
                         api_key: "",
                         is_custom: true,
-                        custom_name: "自定义模型 (" + (Object.keys(g_allConfigs).length - 5) + ")"
+                        custom_name: "自定义模型 (" + (Object.keys(g_allConfigs).length - 6) + ")"
                     };
                     g_currentProvider = newId;
                     renderProviderOptions();
@@ -1180,7 +1249,6 @@ class SettingsUI {
                             setCustomSelectValue("select-provider", g_currentProvider);
                             renderCurrentForm();
                             
-                            // 立即触发保存，使程序与翻译框瞬间生效
                             triggerSaveSilent();
                             showCenterToast("已成功删除模型并即时生效", false);
                         }
@@ -1260,6 +1328,7 @@ class SettingsUI {
                     document.getElementById("hk_settings").value = "Alt+S";
                     document.getElementById("hk_output_trans").value = "Enter";
                     document.getElementById("hk_output_raw").value = "Ctrl+Enter";
+                    document.getElementById("hk_paste_trans").value = "Ctrl+Alt+Y";
                     document.getElementById("hk_switch_ai").value = "Tab";
                     showCenterToast("已恢复默认快捷键，点击保存生效", false);
                 }
@@ -1299,7 +1368,6 @@ class SettingsUI {
                     }
                 }
 
-                // 兼容 IE11 的祖先元素检查，确保点击空白处可正常收起所有下拉框
                 function hasCustomSelectParent(node) {
                     while (node && node !== document) {
                         if (node.className && typeof node.className === 'string' && node.className.indexOf('custom-select') !== -1) {
@@ -1318,10 +1386,12 @@ class SettingsUI {
                     }
                 }, false);
 
-                function selectOption(selectId, value, labelText) {
+                function selectOption(selectId, value, labelText, isHtml) {
                     var el = document.getElementById(selectId);
                     el.setAttribute("data-value", value);
-                    el.querySelector(".select-text").innerText = labelText;
+                    
+                    var actualText = isHtml ? decodeURIComponent(labelText) : labelText;
+                    el.querySelector(".select-text").innerHTML = actualText;
                     
                     var options = el.querySelectorAll(".select-option");
                     for (var i = 0; i < options.length; i++) {
@@ -1347,17 +1417,22 @@ class SettingsUI {
                     for (var i = 0; i < options.length; i++) {
                         if (options[i].getAttribute("data-value") === value) {
                             el.setAttribute("data-value", value);
-                            var sp = options[i].querySelector("span");
-                            el.querySelector(".select-text").innerText = sp ? sp.innerText : options[i].innerText;
+                            el.querySelector(".select-text").innerHTML = options[i].innerHTML;
                             options[i].classList.add("selected");
                             matched = true;
                         } else {
                             options[i].classList.remove("selected");
                         }
                     }
+                    if (!matched && g_builtinLabels[value]) {
+                        el.setAttribute("data-value", value);
+                        el.querySelector(".select-text").innerHTML = g_builtinLabels[value];
+                        matched = true;
+                    }
                     if (!matched && g_allConfigs[value]) {
                         el.setAttribute("data-value", value);
-                        el.querySelector(".select-text").innerText = g_allConfigs[value].custom_name || value;
+                        var customDisplayName = g_allConfigs[value].custom_name || value;
+                        el.querySelector(".select-text").innerHTML = '🤖 ' + customDisplayName;
                     }
                 }
 
@@ -1419,6 +1494,7 @@ class SettingsUI {
                     document.getElementById("hk_settings").value = ahkToUser(g_hotkeys.settings || "!s");
                     document.getElementById("hk_output_trans").value = ahkToUser(g_hotkeys.output_trans || "Enter");
                     document.getElementById("hk_output_raw").value = ahkToUser(g_hotkeys.output_raw || "^Enter");
+                    document.getElementById("hk_paste_trans").value = ahkToUser(g_hotkeys.paste_trans || "^!y");
                     document.getElementById("hk_switch_ai").value = ahkToUser(g_hotkeys.switch_ai || "Tab");
                 }
 
@@ -1426,7 +1502,9 @@ class SettingsUI {
                     saveCurrentFormToMemory();
                     g_currentProvider = newProvider;
                     renderCurrentForm();
-                    updateStatusText("已切换至「" + (g_builtinLabels[newProvider] || g_allConfigs[newProvider].custom_name || newProvider) + "」，专属配置已载入。");
+                    
+                    var cleanLabel = g_builtinLabels[newProvider] ? g_builtinLabels[newProvider].replace(/<[^>]*>?/gm, '') : (g_allConfigs[newProvider].custom_name || newProvider);
+                    updateStatusText("已切换至「" + cleanLabel + "」，专属配置已载入。");
                 }
 
                 function saveCurrentFormToMemory() {
@@ -1448,7 +1526,7 @@ class SettingsUI {
                     var btn = document.getElementById("btnTestApi");
                     if (btn) {
                         btn.disabled = true;
-                        btn.innerText = "⏳ 正在检测...";
+                        btn.innerText = "⏳ 正则检测...";
                     }
 
                     var card = document.getElementById("statusCard");
@@ -1479,6 +1557,7 @@ class SettingsUI {
                         settings: userToAhk(document.getElementById("hk_settings").value) || "!s",
                         output_trans: userToAhk(document.getElementById("hk_output_trans").value) || "Enter",
                         output_raw: userToAhk(document.getElementById("hk_output_raw").value) || "^Enter",
+                        paste_trans: userToAhk(document.getElementById("hk_paste_trans").value) || "^!y",
                         switch_ai: userToAhk(document.getElementById("hk_switch_ai").value) || "Tab"
                     };
 
@@ -1490,26 +1569,26 @@ class SettingsUI {
                         hotkeys: currentHotkeys
                     };
 
-                    showCenterToast("全部配置已生效，快捷键与模型列表已同步", false);
+                    var sEl = document.querySelector("#select-sourceLang .select-text");
+                    var tEl = document.querySelector("#select-targetLang .select-text");
+                    var sName = sEl ? sEl.innerText.split(" ")[0] : "自动";
+                    var tName = tEl ? tEl.innerText.split(" ")[0] : "英文";
+                    if (sName === "自动识别") sName = "自动识别";
+
+                    var langMsg = "已成功切换语言模式：<br>" + sName + " ↔ " + tName;
+
+                    showCenterToast(langMsg, false);
                     window.ahk_call("save", JSON.stringify(fullConfigObj));
                 }
 
                 function triggerSaveSilent() {
                     saveCurrentFormToMemory();
-                    var currentHotkeys = {
-                        show_bar: userToAhk(document.getElementById("hk_show_bar").value) || "!y",
-                        settings: userToAhk(document.getElementById("hk_settings").value) || "!s",
-                        output_trans: userToAhk(document.getElementById("hk_output_trans").value) || "Enter",
-                        output_raw: userToAhk(document.getElementById("hk_output_raw").value) || "^Enter",
-                        switch_ai: userToAhk(document.getElementById("hk_switch_ai").value) || "Tab"
-                    };
-
                     var fullConfigObj = {
                         current_provider: g_currentProvider,
                         source_lang: getCustomSelectValue("select-sourceLang"),
                         target_lang: getCustomSelectValue("select-targetLang"),
                         providers: g_allConfigs,
-                        hotkeys: currentHotkeys
+                        hotkeys: g_hotkeys
                     };
                     window.ahk_call("save", JSON.stringify(fullConfigObj));
                 }
@@ -1573,14 +1652,14 @@ class SettingsUI {
                         icon.style.color = "#FFFFFF";
                         icon.style.boxShadow = "0 4px 12px rgba(239, 68, 68, 0.35)";
                         title.innerText = "保存失败";
-                        desc.innerText = msg;
+                        desc.innerHTML = msg;
                     } else {
                         icon.innerText = "✓";
                         icon.style.background = "#D8FA63";
                         icon.style.color = "#18181B";
                         icon.style.boxShadow = "0 4px 12px rgba(216, 250, 99, 0.35)";
                         title.innerText = "配置保存成功";
-                        desc.innerText = msg;
+                        desc.innerHTML = msg;
                     }
 
                     modal.style.display = "block";

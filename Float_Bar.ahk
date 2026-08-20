@@ -1,17 +1,25 @@
 #Requires AutoHotkey v2.0
-#Include Settings_UI.ahk
-#Include AI_Translate.ahk
 
-; ==============================================================================
-; 注册鼠标拖拽：按住悬浮窗任意非输入区均可自由移动位置
-; ==============================================================================
-OnMessage(0x0201, WM_LBUTTONDOWN_DRAG)
+OnMessage(0x0084, WM_NCHITTEST)
 
-WM_LBUTTONDOWN_DRAG(wParam, lParam, msg, hwnd) {
-    if (FloatBar.gui && (hwnd == FloatBar.gui.Hwnd || DllCall("GetParent", "ptr", hwnd) == FloatBar.gui.Hwnd)) {
-        if (FloatBar.editInput && hwnd != FloatBar.editInput.Hwnd) {
-            PostMessage(0xA1, 2, 0, FloatBar.gui.Hwnd) ; WM_NCLBUTTONDOWN = 0xA1, HTCAPTION = 2
+WM_NCHITTEST(wParam, lParam, msg, hwnd) {
+    if (FloatBar.gui && hwnd == FloatBar.gui.Hwnd) {
+        x := lParam & 0xFFFF
+        y := (lParam >> 16) & 0xFFFF
+        DllCall("ScreenToClient", "ptr", hwnd, "ptr", buf := Buffer(8, 0))
+        NumPut("int", x, buf, 0)
+        NumPut("int", y, buf, 4)
+        
+        cX := NumGet(buf, 0, "int")
+        cY := NumGet(buf, 4, "int")
+
+        if (FloatBar.editInput) {
+            FloatBar.editInput.GetPos(&eX, &eY, &eW, &eH)
+            if (cX >= eX && cX <= eX + eW && cY >= eY && cY <= eY + eH)
+                return 1
         }
+
+        return 2
     }
 }
 
@@ -20,132 +28,164 @@ class FloatBar {
     static editInput := 0
     static textResult := 0
     static currentModelTag := 0
+    static currentModelIcon := 0
+    static customEmojiTag := 0
+    static currentModelLabel := 0
+    
+    ; 绝对路径指向本地图标文件夹，实现极致秒开
+    static iconDir := "F:\AI-Live-Translator\assets\icons"
+    
     static isTranslating := false
-    static debounceTimer := 0
     static hotkeysRegistered := false
     static lastActiveHwnd := 0
     
     static currentProvider := "DeepSeek"
 
-    ; ==========================================================================
-    ; 动态获取所有可用模型及 1:1 完整显示名称映射（已修复删除同步问题）
-    ; ==========================================================================
     static GetDynamicProviders() {
         cfg := SettingsUI.LoadConfig()
-        
         list := []
         titles := Map()
 
-        ; 内置模型标准全称映射
         builtinMap := Map(
             "DeepSeek", "DeepSeek（官方直连·深度思考）",
             "Gemini", "Gemini（需魔法）",
             "OpenAI", "ChatGPT（需魔法）",
             "NVIDIA", "NVIDIA·免费满血模型（需魔法）",
+            "Meta",     "Meta（需魔法）",
             "Doubao", "豆包(ByteDance)",
-            "Qwen", "通义千问 (阿里百炼·国内直连)",
-            "Tongyi", "通义千问 (阿里百炼·国内直连)"
+            "Qwen",   "通义千问 (阿里百炼·国内直连)"
         )
 
         if (cfg.Has("providers") && IsObject(cfg["providers"])) {
             for pKey, pVal in cfg["providers"] {
                 if (pKey == "" || InStr(pKey, "添加") || pKey == "添加自定义模型API")
                     continue
-
+                
                 displayName := pKey
-
-                ; 1. 如果是内置模型，赋予标准全称
                 if (builtinMap.Has(pKey)) {
                     displayName := builtinMap[pKey]
-                } 
-                else if (IsObject(pVal)) {
-                    ; 2. 如果是自定义模型，精准提取 custom_name 或 platform_nickname
-                    if (pVal.Has("custom_name") && pVal["custom_name"] != "") {
+                } else if (IsObject(pVal)) {
+                    if (pVal.Has("custom_name") && pVal["custom_name"] != "")
                         displayName := pVal["custom_name"]
-                    } else if (pVal.Has("platform_nickname") && pVal["platform_nickname"] != "") {
-                        displayName := pVal["platform_nickname"]
-                    }
                 }
-
                 titles[pKey] := displayName
-                
-                ; 避免重复加入轮换列表
-                found := false
-                for existingKey in list {
-                    if (existingKey == pKey) {
-                        found := true
-                        break
-                    }
-                }
-                if (!found) {
-                    list.Push(pKey)
-                }
+                list.Push(pKey)
             }
         }
-
-        ; 保底默认列表
         if (list.Length == 0) {
-            list := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Doubao", "Qwen"]
-            for k, v in builtinMap {
+            list := ["DeepSeek", "Gemini", "OpenAI", "NVIDIA", "Meta", "Doubao", "Qwen"]
+            for k, v in builtinMap
                 titles[k] := v
-            }
         }
-
         return { list: list, titles: titles }
     }
 
     static GetProviderTitle(key) {
         data := this.GetDynamicProviders()
-        if (data.titles.Has(key)) {
-            return data.titles[key]
+        return data.titles.Has(key) ? data.titles[key] : key
+    }
+
+    static GetProviderIconFile(key) {
+        iconMap := Map(
+            "Gemini",  "Gemini.png",
+            "OpenAI",  "GPT.png",
+            "NVIDIA",  "nvidia.png",
+            "Meta",    "meta.png",
+            "Qwen",    "qwen.png",
+            "DeepSeek","deepseek.png",
+            "Doubao",  "doubao.png"
+        )
+        fileName := iconMap.Has(key) ? iconMap[key] : (StrLower(key) . ".png")
+        filePath := this.iconDir "\" fileName
+        return FileExist(filePath) ? filePath : ""
+    }
+
+    static IsBuiltinProvider(key) {
+        return Map("Gemini",1, "OpenAI",1, "NVIDIA",1, "Meta",1, "Qwen",1, "DeepSeek",1, "Doubao",1).Has(key)
+    }
+
+    static UpdateCurrentProviderDisplay() {
+        if (!this.currentModelTag || !this.currentModelIcon || !this.customEmojiTag)
+            return
+
+        title := this.GetProviderTitle(this.currentProvider)
+        this.currentModelTag.Text := title
+
+        if (this.IsBuiltinProvider(this.currentProvider)) {
+            this.customEmojiTag.Visible := false
+            iconFile := this.GetProviderIconFile(this.currentProvider)
+            if (iconFile != "") {
+                try {
+                    this.currentModelIcon.Value := iconFile
+                    this.currentModelIcon.Visible := true
+                    this.currentModelIcon.Move(, 8)
+                } catch {
+                    this.currentModelIcon.Visible := false
+                }
+            } else {
+                this.currentModelIcon.Visible := false
+            }
+        } else {
+            this.currentModelIcon.Visible := false
+            this.customEmojiTag.Visible := true
+            this.customEmojiTag.Move(, 6)
         }
-        for k, v in data.titles {
-            if (k == key || v == key)
-                return v
-        }
-        return key
     }
 
     static Create() {
         if (this.gui != 0)
             return
 
-        ; 创建温暖米色置顶悬浮翻译条
-        bar := Gui("+AlwaysOnTop -Caption +ToolWindow +Border", "AI 实时翻译")
+        bar := Gui("+AlwaysOnTop -Caption +ToolWindow", "AI 实时翻译")
         bar.BackColor := "F4EEDC"
         bar.MarginX := 12
         bar.MarginY := 10
         bar.SetFont("s10.5", "Segoe UI, Microsoft YaHei")
 
-        ; 顶部当前引擎标识
-        this.currentModelTag := bar.AddText("x12 y10 w456 h20 c65A30D", "● 当前引擎: " . this.GetProviderTitle(this.currentProvider))
-        this.currentModelTag.SetFont("s9.5 bold")
+        this.currentModelLabel := bar.AddText("x12 y9 w96 h20 c65A30D", "● 当前引擎:")
+        this.currentModelLabel.SetFont("s9.5 bold")
 
-        ; 白底背景框 + 垂直居中输入框
-        bar.AddText("x12 y32 w456 h36 BackgroundFFFFFF", "")
-        this.editInput := bar.AddEdit("x18 y40 w444 h22 -E0x200 -VScroll -HScroll BackgroundFFFFFF c18181B", "")
+        initialIcon := this.GetProviderIconFile(this.currentProvider)
+        if (initialIcon != "") {
+            this.currentModelIcon := bar.AddPicture("x110 y8 w16 h16", initialIcon)
+        } else {
+            this.currentModelIcon := bar.AddPicture("x110 y8 w16 h16 Hidden", A_AhkPath)
+        }
+
+        this.customEmojiTag := bar.AddText("x110 y6 w20 h20 Hidden", "🤖")
+        this.customEmojiTag.SetFont("s9.5", "Segoe UI Emoji")
+
+        this.currentModelTag := bar.AddText("x130 y9 w394 h20 c65A30D", "")
+        this.currentModelTag.SetFont("s9.5 bold")
+        this.UpdateCurrentProviderDisplay()
+
+        bar.AddText("x14 y33 w512 h34 BackgroundF3F4EE 0x1", "")
+        bar.AddText("x16 y32 w508 h1 Background84CC16 0x1", "")
+        bar.AddText("x16 y67 w508 h1 Background84CC16 0x1", "")
+        bar.AddText("x15 y33 w1 h35 Background84CC16 0x1", "")
+        bar.AddText("x524 y33 w1 h35 Background84CC16 0x1", "")
+
+        this.editInput := bar.AddEdit("x18 y37 w504 h26 -E0x200 -VScroll -HScroll BackgroundF3F4EE c18181B", "")
         this.editInput.SetFont("s11", "Segoe UI, Microsoft YaHei")
         this.editInput.OnEvent("Change", (ctrl, *) => this.OnInputChange(ctrl.Value))
 
-        ; 翻译结果展示区
-        this.textResult := bar.AddText("x12 y78 w456 h46 c3F3F46", "等待输入...")
+        this.textResult := bar.AddText("x12 y78 w516 h46 c3F3F46", "等待输入...")
         this.textResult.SetFont("s11", "Segoe UI, Microsoft YaHei")
 
-        ; 底部快捷键提示
-        hint := bar.AddText("x12 y130 w456 h18 c84CC16", "[Enter] 输出翻译  |  [Ctrl+Enter] 输出原文  |  [Tab] 切换模型  |  [Esc] 关闭")
-        hint.SetFont("s8.5")
+        hint := bar.AddText("x12 y130 w516 h18 c84CC16", "[Enter]输出 | [Ctrl+Enter]原文 | 粘贴[Ctrl+Alt+Y] | [Tab]切换 | [Esc]关闭")
+        hint.SetFont("s8.5 bold")
 
-        ; 按 Esc 键隐藏窗口
         bar.OnEvent("Escape", (*) => this.Hide())
         this.gui := bar
 
-        ; 注册悬浮窗口专属快捷键
         if (!this.hotkeysRegistered) {
             HotIf((*) => (this.gui != 0 && WinActive("ahk_id " . this.gui.Hwnd)))
             Hotkey("Enter", (*) => this.ConfirmOutput(true), "On")
             Hotkey("^Enter", (*) => this.ConfirmOutput(false), "On")
             Hotkey("Tab", (*) => this.SwitchNextProvider(), "On")
             HotIf()
+
+            Hotkey("^!y", (*) => this.PasteAndTranslate(), "On")
             this.hotkeysRegistered := true
         }
     }
@@ -159,16 +199,45 @@ class FloatBar {
         }
     }
 
-    ; ==========================================================================
-    ; 左下角对齐光标 / 鼠标智能定位算法
-    ; ==========================================================================
-    static CalculateSmartPosition(barW := 480, barH := 155) {
+    static PasteAndTranslate() {
+        currActive := WinActive("A")
+        if (this.gui == 0 || currActive != this.gui.Hwnd) {
+            this.lastActiveHwnd := currActive
+        }
+
+        A_Clipboard := ""
+        Send("^c")
+        ClipWait(0.4)
+        
+        clipContent := A_Clipboard
+
+        this.Create()
+        pos := this.CalculateSmartPosition(540, 155)
+        this.gui.Show("x" . pos.x . " y" . pos.y . " w540 h155")
+
+        cfg := SettingsUI.LoadConfig()
+        if (cfg.Has("current_provider") && cfg["current_provider"] != "") {
+            this.currentProvider := cfg["current_provider"]
+        }
+        this.UpdateCurrentProviderDisplay()
+
+        if (Trim(clipContent) != "") {
+            this.editInput.Value := clipContent
+            ; 💡 修复：主动调用 OnInputChange 启动 400ms 防抖并触发翻译
+            this.OnInputChange(clipContent)
+        } else {
+            this.editInput.Value := ""
+            this.textResult.Text := "等待输入..."
+        }
+        this.editInput.Focus()
+    }
+
+    static CalculateSmartPosition(barW := 540, barH := 155) {
         targetX := 0
         targetY := 0
         hasCaret := false
-        gap := 16 ; 浮窗底部与输入光标之间的垂直安全间隙 (16px)
+        gap := 16
 
-        ; 1. 读取当前输入焦点光标 (Caret)
         try {
             activeHwnd := WinActive("A")
             if (activeHwnd) {
@@ -202,7 +271,6 @@ class FloatBar {
             }
         }
 
-        ; 2. 若当前软件未暴露光标，则以鼠标当前位置作为对齐锚点
         if (!hasCaret) {
             CoordMode "Mouse", "Screen"
             MouseGetPos &mX, &mY
@@ -210,7 +278,6 @@ class FloatBar {
             targetY := mY - barH - gap
         }
 
-        ; 3. 屏幕边界保护与防溢出
         screenWidth := A_ScreenWidth
         screenHeight := A_ScreenHeight
 
@@ -244,7 +311,6 @@ class FloatBar {
             this.currentProvider := cfg["current_provider"]
         }
         
-        ; 校验当前 provider 是否在动态可用列表中，若不在则默认切到第一个
         data := this.GetDynamicProviders()
         found := false
         for p in data.list {
@@ -257,12 +323,12 @@ class FloatBar {
             this.currentProvider := data.list[1]
         }
         
-        this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
+        this.UpdateCurrentProviderDisplay()
         this.editInput.Value := ""
         this.textResult.Text := "等待输入..."
 
-        pos := this.CalculateSmartPosition(480, 155)
-        this.gui.Show("x" . pos.x . " y" . pos.y . " w480 h155")
+        pos := this.CalculateSmartPosition(540, 155)
+        this.gui.Show("x" . pos.x . " y" . pos.y . " w540 h155")
 
         this.editInput.Focus()
     }
@@ -280,11 +346,8 @@ class FloatBar {
             return
         }
 
-        if (this.debounceTimer)
-            SetTimer(this.debounceTimer, 0)
-
-        this.debounceTimer := () => this.DoLiveTranslate(val)
-        SetTimer(this.debounceTimer, -350)
+        ; 400ms 统一防抖缓冲定时器
+        SetTimer(() => this.DoLiveTranslate(val), -400)
     }
 
     static DoLiveTranslate(inputText) {
@@ -351,7 +414,7 @@ class FloatBar {
         nextIdx := (currIdx >= providerList.Length) ? 1 : currIdx + 1
         this.currentProvider := providerList[nextIdx]
         
-        this.currentModelTag.Text := "● 当前引擎: " . this.GetProviderTitle(this.currentProvider)
+        this.UpdateCurrentProviderDisplay()
 
         (Trim(this.editInput.Value) != "") ? this.DoLiveTranslate(this.editInput.Value) : ""
     }
